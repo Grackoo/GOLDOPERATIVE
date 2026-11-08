@@ -25,6 +25,7 @@ from core.state_machine import state_machine
 from core.time_manager import time_manager
 from storage.repository import repository
 from storage.metrics_calc import compute_metrics
+from strategy.daily_decision_engine import daily_decision_engine
 from config import settings
 
 logger = logging.getLogger("WebServer")
@@ -331,6 +332,37 @@ async def get_bars(timeframe: str = "M1", count: int = 120):
             })
 
     return bars_data
+
+
+@app.get("/api/daily-briefing")
+async def get_daily_briefing():
+    """Retrieves current session parameters, pivot levels, COT data, and 1:3 CALL & PUT setups."""
+    current_price = 4055.20
+    bars = []
+    if hasattr(app.state, "bar_aggregator"):
+        bars = app.state.bar_aggregator.get_latest_bars("M15", count=60)
+        if bars:
+            current_price = bars[-1].close
+    analysis = daily_decision_engine.calculate_session_parameters(current_price, bars)
+    return analysis
+
+
+@app.post("/api/daily-briefing/recalculate")
+async def recalculate_daily_briefing():
+    """Recalculates setups and zones on demand for the exact current market hour/price."""
+    current_price = 4055.20
+    bars = []
+    if hasattr(app.state, "bar_aggregator"):
+        bars = app.state.bar_aggregator.get_latest_bars("M15", count=60)
+        if bars:
+            current_price = bars[-1].close
+    analysis = daily_decision_engine.calculate_session_parameters(current_price, bars)
+    # Also write local storage copy of markdown report
+    md_content = daily_decision_engine.generate_markdown_report(analysis)
+    report_path = Path("storage/INFORME_OPERATIVO_DIARIO.md")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(md_content, encoding="utf-8")
+    return analysis
 
 
 @app.websocket("/ws/stream")

@@ -19,6 +19,17 @@ let breakEvenLine = null;
 // Tracked markers (Swings, Sweeps, Entries)
 let chartMarkers = [];
 
+// Daily Decision & Setups Lines
+let callEntryLine = null;
+let callSLLine = null;
+let callTPLine = null;
+let putEntryLine = null;
+let putSLLine = null;
+let putTPLine = null;
+let pivotPPLine = null;
+let zonesVisible = false;
+let currentBriefing = null;
+
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
     fetchBars(currentTimeframe);
@@ -27,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchMetrics();
     fetchTrades();
     fetchPositions();
+    fetchDailyBriefing();
     setInterval(updateClock, 1000);
 });
 
@@ -389,8 +401,249 @@ function switchTab(tabId) {
     if (tabId === "trades") {
         document.getElementById("tab-trades-btn").classList.add("active");
         document.getElementById("pane-trades").style.display = "block";
-    } else {
+    } else if (tabId === "positions") {
         document.getElementById("tab-pos-btn").classList.add("active");
         document.getElementById("pane-positions").style.display = "block";
+    } else if (tabId === "document") {
+        document.getElementById("tab-doc-btn").classList.add("active");
+        document.getElementById("pane-document").style.display = "block";
     }
+}
+
+// 6. Daily Decision Engine & Setups CALL / PUT
+async function fetchDailyBriefing() {
+    try {
+        const res = await fetch("/api/daily-briefing");
+        if (!res.ok) throw new Error("Network response was not ok");
+        const data = await res.json();
+        currentBriefing = data;
+        updateBriefingUI(data);
+    } catch (e) {
+        console.error("Error fetching daily briefing:", e);
+    }
+}
+
+async function recalculateBriefing() {
+    const btn = document.getElementById("btn-recalculate");
+    const origText = btn ? btn.textContent : "";
+    if (btn) {
+        btn.textContent = "⏳ Calculando...";
+        btn.disabled = true;
+    }
+
+    try {
+        const res = await fetch("/api/daily-briefing/recalculate", { method: "POST" });
+        if (!res.ok) throw new Error("Failed to recalculate briefing");
+        const data = await res.json();
+        currentBriefing = data;
+        updateBriefingUI(data);
+        if (zonesVisible) {
+            // Refresh drawn lines
+            clearZonesFromChart();
+            drawZonesOnChart(data);
+        }
+    } catch (e) {
+        console.error("Error recalculating daily briefing:", e);
+    } finally {
+        if (btn) {
+            btn.textContent = origText || "🔄 Actualizar Análisis y Setups Ahora";
+            btn.disabled = false;
+        }
+    }
+}
+
+function updateBriefingUI(data) {
+    if (!data) return;
+
+    // Subtitle timestamp
+    const subtitle = document.getElementById("briefing-time-subtitle");
+    if (subtitle) {
+        subtitle.textContent = `Precios y niveles tomados a las ${data.calculation_time || "N/A"} (${data.session || "Sesión Matutina"})`;
+    }
+
+    // SETUP A: CALL
+    if (data.call_setup) {
+        setText("call-setup-title", data.call_setup.title);
+        setText("call-condition", data.call_setup.condition);
+        setText("call-entry", `$${data.call_setup.entry_price.toFixed(2)} USD`);
+        setText("call-sl", `$${data.call_setup.stop_loss.toFixed(2)} USD`);
+        setText("call-tp", `$${data.call_setup.take_profit.toFixed(2)} USD`);
+        setText("call-zone", data.call_setup.zone);
+        setText("call-obj", data.call_setup.objective);
+    }
+
+    // SETUP B: PUT
+    if (data.put_setup) {
+        setText("put-setup-title", data.put_setup.title);
+        setText("put-condition", data.put_setup.condition);
+        setText("put-entry", `$${data.put_setup.entry_price.toFixed(2)} USD`);
+        setText("put-sl", `$${data.put_setup.stop_loss.toFixed(2)} USD`);
+        setText("put-tp", `$${data.put_setup.take_profit.toFixed(2)} USD`);
+        setText("put-zone", data.put_setup.zone);
+        setText("put-obj", data.put_setup.objective);
+    }
+
+    // Parametros Operativos
+    if (data.parameters) {
+        setText("p-open", `$${data.parameters.us_open_spot.toFixed(2)} USD`);
+        setText("p-current", `$${data.parameters.current_session_price.toFixed(2)} USD`);
+        setText("p-range", `$${data.parameters.session_min.toFixed(2)} - $${data.parameters.session_max.toFixed(2)} USD`);
+        setText("p-traversed", `$${data.parameters.range_traversed.toFixed(2)} USD`);
+        setText("p-atr", `$${data.parameters.atr_daily.toFixed(2)} USD`);
+        setText("p-consumption", `${data.parameters.range_consumption_pct.toFixed(1)}%`);
+        setText("p-vpoc", `$${data.parameters.session_vpoc.toFixed(2)} USD`);
+    }
+
+    // Niveles Pivote
+    if (data.pivots) {
+        setText("piv-r3", `$${data.pivots.r3.toFixed(2)}`);
+        setText("piv-r2", `$${data.pivots.r2.toFixed(2)}`);
+        setText("piv-r1", `$${data.pivots.r1.toFixed(2)}`);
+        setText("piv-pp", `$${data.pivots.pp.toFixed(2)}`);
+        setText("piv-s1", `$${data.pivots.s1.toFixed(2)}`);
+        setText("piv-s2", `$${data.pivots.s2.toFixed(2)}`);
+        setText("piv-s3", `$${data.pivots.s3.toFixed(2)}`);
+    }
+
+    // COT Institucional
+    if (data.cot) {
+        setText("cot-longs", data.cot.longs.toLocaleString());
+        setText("cot-shorts", data.cot.shorts.toLocaleString());
+        setText("cot-net", `+${data.cot.net.toLocaleString()} (${data.cot.change})`);
+        setText("cot-interp", data.cot.interpretation);
+    }
+
+    // Documento Operativo Completo
+    const docEl = document.getElementById("daily-document-content");
+    if (docEl && data.markdown_document) {
+        docEl.innerHTML = formatMarkdownToHTML(data.markdown_document);
+    }
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function clearZonesFromChart() {
+    if (callEntryLine) { candleSeries.removePriceLine(callEntryLine); callEntryLine = null; }
+    if (callSLLine) { candleSeries.removePriceLine(callSLLine); callSLLine = null; }
+    if (callTPLine) { candleSeries.removePriceLine(callTPLine); callTPLine = null; }
+    if (putEntryLine) { candleSeries.removePriceLine(putEntryLine); putEntryLine = null; }
+    if (putSLLine) { candleSeries.removePriceLine(putSLLine); putSLLine = null; }
+    if (putTPLine) { candleSeries.removePriceLine(putTPLine); putTPLine = null; }
+    if (pivotPPLine) { candleSeries.removePriceLine(pivotPPLine); pivotPPLine = null; }
+}
+
+function drawZonesOnChart(data) {
+    if (!candleSeries || !data) return;
+
+    if (data.call_setup) {
+        callEntryLine = candleSeries.createPriceLine({
+            price: data.call_setup.entry_price,
+            color: "#10b981",
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: "CALL ENTRY",
+        });
+        callSLLine = candleSeries.createPriceLine({
+            price: data.call_setup.stop_loss,
+            color: "#ef4444",
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: "CALL SL",
+        });
+        callTPLine = candleSeries.createPriceLine({
+            price: data.call_setup.take_profit,
+            color: "#10b981",
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: "CALL TP (1:3)",
+        });
+    }
+
+    if (data.put_setup) {
+        putEntryLine = candleSeries.createPriceLine({
+            price: data.put_setup.entry_price,
+            color: "#f59e0b",
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: "PUT ENTRY",
+        });
+        putSLLine = candleSeries.createPriceLine({
+            price: data.put_setup.stop_loss,
+            color: "#ef4444",
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: "PUT SL",
+        });
+        putTPLine = candleSeries.createPriceLine({
+            price: data.put_setup.take_profit,
+            color: "#06b6d4",
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: "PUT TP (1:3)",
+        });
+    }
+
+    if (data.pivots && data.pivots.pp) {
+        pivotPPLine = candleSeries.createPriceLine({
+            price: data.pivots.pp,
+            color: "#8b5cf6",
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.SparseDotted,
+            axisLabelVisible: true,
+            title: "PIVOT PP",
+        });
+    }
+}
+
+function toggleZonesOnChart() {
+    if (zonesVisible) {
+        clearZonesFromChart();
+        zonesVisible = false;
+    } else {
+        if (!currentBriefing) {
+            fetchDailyBriefing().then(() => {
+                if (currentBriefing) {
+                    drawZonesOnChart(currentBriefing);
+                    zonesVisible = true;
+                }
+            });
+        } else {
+            drawZonesOnChart(currentBriefing);
+            zonesVisible = true;
+        }
+    }
+}
+
+function formatMarkdownToHTML(md) {
+    if (!md) return "";
+    let html = md
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    // Headings
+    html = html.replace(/^### (.*$)/gim, '<h3 style="color:#d4af37; margin:14px 0 6px 0; font-size:15px;">$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2 style="color:#d4af37; margin:16px 0 8px 0; font-size:16px; border-bottom:1px solid #232c45; padding-bottom:4px;">$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1 style="color:#d4af37; margin:18px 0 10px 0; font-size:18px; border-bottom:1px solid #d4af37; padding-bottom:6px;">$1</h1>');
+
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#ffffff;">$1</strong>');
+
+    // Lists
+    html = html.replace(/^\s*-\s+(.*$)/gim, '<div style="margin-left:14px; margin-bottom:4px;">• $1</div>');
+
+    // Line breaks
+    html = html.replace(/\n\n/g, '<div style="height:8px;"></div>');
+    html = html.replace(/\n/g, "<br>");
+
+    return html;
 }

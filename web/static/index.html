@@ -140,12 +140,142 @@
         </aside>
     </main>
 
-    <!-- Bottom Tables: Active Positions & Trade History -->
+    <!-- Módulo Avanzado de Decisión Diaria & Zonas CALL / PUT -->
+    <section class="daily-decision-section">
+        <div class="decision-card">
+            <div class="decision-header">
+                <div>
+                    <div class="decision-title">🎯 MÓDULO AVANZADO DE DECISIÓN DIARIA & ZONAS CALL / PUT (XAU/USD)</div>
+                    <div id="briefing-time-subtitle" class="decision-subtitle">Precios y niveles calculados para la sesión operativa actual</div>
+                </div>
+                <div class="decision-actions">
+                    <button id="btn-recalculate" class="btn-action primary" onclick="recalculateBriefing()">
+                        🔄 Actualizar Análisis y Setups Ahora
+                    </button>
+                    <button class="btn-action" onclick="toggleZonesOnChart()">
+                        🎯 Trazar Zonas en Gráfico
+                    </button>
+                    <button class="btn-action" onclick="switchTab('document')">
+                        📄 Ver Documento Completo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Setups CALL / PUT Grid -->
+            <div class="setups-grid">
+                <!-- SETUP A: CALL -->
+                <div class="setup-box call-box">
+                    <div class="setup-badge call-badge">🟢 SETUP A: ORDEN CALL RECOMENDADA (LONG)</div>
+                    <div id="call-setup-title" class="setup-name">Rebote en Soporte Clave / Absorción Compradora</div>
+                    <div class="setup-condition">
+                        <strong>Condición:</strong> <span id="call-condition">Vela de 15 min con mecha de rechazo en soporte clave...</span>
+                    </div>
+                    <div class="setup-metrics-grid">
+                        <div class="metric-item">
+                            <span class="m-label">Precio Entrada</span>
+                            <span id="call-entry" class="m-val highlight-green">$4,052.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Stop Loss (1R)</span>
+                            <span id="call-sl" class="m-val highlight-red">$4,038.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Take Profit (3R)</span>
+                            <span id="call-tp" class="m-val highlight-green">$4,094.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Ratio R:R</span>
+                            <span class="m-val">1:3 Exacto</span>
+                        </div>
+                    </div>
+                    <div class="setup-footer">
+                        <span>Zona Operativa: <strong id="call-zone">$4,042 - $4,048 USD</strong></span>
+                        <span id="call-obj" style="color:var(--text-muted); font-size:11px;">Retesteo de PP / S1</span>
+                    </div>
+                </div>
+
+                <!-- SETUP B: PUT -->
+                <div class="setup-box put-box">
+                    <div class="setup-badge put-badge">🔴 SETUP B: ORDEN PUT RECOMENDADA (SHORT)</div>
+                    <div id="put-setup-title" class="setup-name">Ruptura Bajista de Mínimos de Sesión</div>
+                    <div class="setup-condition">
+                        <strong>Condición:</strong> <span id="put-condition">Vela de 15 min quebrando con fuerza el mínimo matutino...</span>
+                    </div>
+                    <div class="setup-metrics-grid">
+                        <div class="metric-item">
+                            <span class="m-label">Precio Entrada</span>
+                            <span id="put-entry" class="m-val highlight-red">$4,040.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Stop Loss (1R)</span>
+                            <span id="put-sl" class="m-val highlight-red">$4,050.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Take Profit (3R)</span>
+                            <span id="put-tp" class="m-val highlight-green">$4,010.00</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="m-label">Ratio R:R</span>
+                            <span class="m-val">1:3 Exacto</span>
+                        </div>
+                    </div>
+                    <div class="setup-footer">
+                        <span>Zona Operativa: <strong id="put-zone">$4,040 - $4,038 USD</strong></span>
+                        <span id="put-obj" style="color:var(--text-muted); font-size:11px;">Proyección hacia soporte S3</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parameters & Pivots Sub-Grid -->
+            <div class="params-pivots-grid">
+                <!-- Parametros Operativos -->
+                <div class="info-block">
+                    <div class="block-title">📊 Parámetros Operativos de la Sesión</div>
+                    <div class="info-row"><span>Precio Spot Apertura EE.UU.:</span> <strong id="p-open">$4,068.50</strong></div>
+                    <div class="info-row"><span>Precio Actual en Sesión:</span> <strong id="p-current">$4,055.20</strong></div>
+                    <div class="info-row"><span>Rango Sesión (Mín / Máx):</span> <strong id="p-range">$4,041.20 - $4,098.50</strong></div>
+                    <div class="info-row"><span>Rango Recorrido:</span> <strong id="p-traversed">$57.30 USD</strong></div>
+                    <div class="info-row"><span>ATR Diario (14 periodos):</span> <strong id="p-atr">$55.20 USD</strong></div>
+                    <div class="info-row"><span>Consumo de Rango Diario:</span> <strong id="p-consumption" style="color:var(--gold);">103.8%</strong></div>
+                    <div class="info-row"><span>VPOC de la Sesión:</span> <strong id="p-vpoc" style="color:var(--cyan-accent);">$4,062.00 USD</strong></div>
+                </div>
+
+                <!-- Niveles Pivote Diarios -->
+                <div class="info-block">
+                    <div class="block-title">📍 Niveles Pivote Diarios</div>
+                    <div class="pivot-badge-grid">
+                        <div class="piv-item"><span class="p-tag res">R3</span> <span id="piv-r3">$4,167.80</span></div>
+                        <div class="piv-item"><span class="p-tag res">R2</span> <span id="piv-r2">$4,147.30</span></div>
+                        <div class="piv-item"><span class="p-tag res">R1</span> <span id="piv-r1">$4,117.90</span></div>
+                        <div class="piv-item"><span class="p-tag pp">PP</span> <strong id="piv-pp">$4,097.40</strong></div>
+                        <div class="piv-item"><span class="p-tag sup">S1</span> <span id="piv-s1">$4,068.00</span></div>
+                        <div class="piv-item"><span class="p-tag sup">S2</span> <span id="piv-s2">$4,047.50</span></div>
+                        <div class="piv-item"><span class="p-tag sup">S3</span> <span id="piv-s3">$4,035.00</span></div>
+                    </div>
+                </div>
+
+                <!-- COT Institucional & Calendario -->
+                <div class="info-block">
+                    <div class="block-title">🏛️ Posicionamiento COT (CFTC Managed Money)</div>
+                    <div style="font-size:12px; margin-bottom:6px;">
+                        • Largos: <strong style="color:var(--bullish-green);" id="cot-longs">203,500</strong> | Cortos: <strong style="color:var(--bearish-red);" id="cot-shorts">34,200</strong><br>
+                        • Posición Neta: <strong style="color:var(--gold);" id="cot-net">+169,300 (+2,350)</strong>
+                    </div>
+                    <div id="cot-interp" style="font-size:11px; line-height:1.4; color:var(--text-secondary); background:rgba(0,0,0,0.2); padding:6px; border-radius:4px;">
+                        Fondos de cobertura mantienen exposición neta compradora en máximos históricos. Caída responde a recogida de beneficios táctica.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Bottom Tables: Active Positions, Trade History & Informe Completo -->
     <footer class="bottom-section">
         <div class="table-card">
             <div class="table-header-tabs">
                 <button id="tab-trades-btn" class="tab-btn active" onclick="switchTab('trades')">Trade Audit Trail (SQLite)</button>
                 <button id="tab-pos-btn" class="tab-btn" onclick="switchTab('positions')">Active Positions & Risk Sentinel</button>
+                <button id="tab-doc-btn" class="tab-btn" onclick="switchTab('document')">📄 Informe Operativo Diario (Documento Completo)</button>
             </div>
             
             <!-- Trades Pane -->
@@ -190,6 +320,10 @@
                         <tr><td colspan="9" style="text-align:center; color:#64748b;">No active market positions</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- Document Pane -->
+            <div id="pane-document" class="tab-pane" style="display:none; padding:18px 24px; max-height:480px; overflow-y:auto; line-height:1.7; font-size:12px; background:rgba(0,0,0,0.15);">
+                <div id="daily-document-content">Cargando documento operativo institucional...</div>
             </div>
         </div>
     </footer>
