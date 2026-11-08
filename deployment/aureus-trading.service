@@ -1,0 +1,40 @@
+[Unit]
+Description=AUREUS-SMC Institutional Gold Trading Engine
+After=network.target network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/aureus-trading
+ExecStart=/opt/aureus-trading/.venv/bin/python /opt/aureus-trading/scripts/run_live.py
+
+# High priority scheduling for low-latency market execution
+Nice=-15
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=50
+
+# Restart policy
+Restart=always
+RestartSec=5s
+
+# Resource and descriptor limits
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+
+# Hard containment & isolation
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+# Environment file
+EnvironmentFile=/opt/aureus-trading/.env
+
+# Standard output routing to system journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aureus-smc
+
+[Install]
+WantedBy=multi-user.target

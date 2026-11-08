@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  aureus-engine:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: aureus_trading_engine
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=SANDBOX
+      - LOG_LEVEL=INFO
+      - TIMEZONE=America/New_York
+      - SYMBOL=XAUUSD
+      - BROKER_TYPE=PAPER
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8000
+      - DATABASE_PATH=/app/storage/aureus_trades.db
+    volumes:
+      - ../storage:/app/storage
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

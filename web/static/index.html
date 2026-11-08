@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUREUS-SMC Institutional Gold Engine</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- TradingView Lightweight Charts v4.2.1 -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+    <!-- Top Navigation & Status -->
+    <header class="top-header">
+        <div class="brand">
+            <div class="brand-icon">Au</div>
+            <div>
+                <div class="brand-title">AUREUS-SMC</div>
+                <div class="brand-subtitle">Institutional Execution • XAU/USD</div>
+            </div>
+        </div>
+        <div class="header-status-group">
+            <div id="ws-status-badge" class="badge badge-paper">CONNECTING WS</div>
+            <div id="system-env-badge" class="badge badge-paper">SANDBOX / PAPER</div>
+            <div id="state-badge" class="badge badge-state">INIT</div>
+            <div id="live-clock" class="clock-display">00:00:00 NY (EST)</div>
+        </div>
+    </header>
+
+    <!-- KPI Metric Cards Banner -->
+    <section class="kpi-container">
+        <div class="kpi-card">
+            <div class="kpi-label">Win Rate %</div>
+            <div id="kpi-winrate" class="kpi-value gold">0.0%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Profit Factor</div>
+            <div id="kpi-pf" class="kpi-value">0.00</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Sharpe Ratio (Ann.)</div>
+            <div id="kpi-sharpe" class="kpi-value">0.00</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Max Drawdown</div>
+            <div id="kpi-dd" class="kpi-value negative">0.0%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Net Profit (USD)</div>
+            <div id="kpi-netprofit" class="kpi-value positive">$0.00</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Closed Trades</div>
+            <div id="kpi-trades-count" class="kpi-value">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">XAU/USD Spread</div>
+            <div id="live-spread" class="kpi-value">$0.18</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Market Mid (Bid/Ask)</div>
+            <div class="kpi-value" style="font-size: 14px;">
+                <span id="live-bid">0.00</span> / <span id="live-ask">0.00</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Workspace (Chart & SMC Radar) -->
+    <main class="main-workspace">
+        <!-- Interactive Chart Card -->
+        <div class="chart-card">
+            <div class="chart-header">
+                <div class="chart-controls">
+                    <span style="font-weight: 700; font-size: 13px; color: var(--gold); margin-right: 8px;">XAU/USD CFD</span>
+                    <button class="btn-tf active" onclick="currentTimeframe='M1'">M1</button>
+                    <button class="btn-tf" onclick="currentTimeframe='M5'">M5</button>
+                </div>
+                <div class="chart-legend">
+                    <div class="legend-item"><div class="legend-dot" style="background:#06b6d4;"></div> London Range</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div> Liquidity Sweep</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6;"></div> MSS / Displacement</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:#ef4444;"></div> Stop Loss</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div> Take Profit (1:3)</div>
+                </div>
+            </div>
+            <div id="tv-chart" class="chart-body"></div>
+        </div>
+
+        <!-- SMC Order Flow Radar -->
+        <aside class="radar-panel">
+            <div class="panel-card">
+                <div class="panel-title">
+                    <span>⚡</span> SMC Execution State
+                </div>
+                <div id="step-london" class="flow-step">
+                    <span class="flow-label">1. London Range (03-08 EST)</span>
+                    <span id="radar-london-high" class="flow-val">Pending</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin: -4px 0 6px 12px;">
+                    Low: <span id="radar-london-low" style="color:var(--text-secondary);">Pending</span>
+                </div>
+
+                <div id="step-sweep" class="flow-step">
+                    <span class="flow-label">2. NY Liquidity Sweep</span>
+                    <span id="radar-sweep-status" class="flow-val">Scanning</span>
+                </div>
+
+                <div id="step-mss" class="flow-step">
+                    <span class="flow-label">3. Displacement & MSS</span>
+                    <span id="radar-mss-status" class="flow-val">Awaiting</span>
+                </div>
+
+                <div id="step-fvg" class="flow-step">
+                    <span class="flow-label">4. FVG & 50% CE Retracement</span>
+                    <span id="radar-fvg-status" class="flow-val">Awaiting</span>
+                </div>
+
+                <div id="step-execution" class="flow-step">
+                    <span class="flow-label">5. 1:3 Execution & BE/Partial</span>
+                    <span id="radar-exec-status" class="flow-val">Ready</span>
+                </div>
+            </div>
+
+            <div class="panel-card">
+                <div class="panel-title">
+                    <span>🛡️</span> Risk & Circuit Breakers
+                </div>
+                <div style="font-size: 12px; line-height: 1.8; color: var(--text-secondary);">
+                    <div>• Max Trades / Session: <strong style="color:#fff;">2 Orders Max</strong></div>
+                    <div>• Daily Hard Drawdown: <strong style="color:var(--bearish-red);">2.00% Hard Stop</strong></div>
+                    <div>• Target RRR: <strong style="color:var(--bullish-green);">1:3.0 Strict</strong></div>
+                    <div>• Break-Even Shift: <strong style="color:var(--amber-accent);">1:1.5 RRR</strong> (+buffer)</div>
+                    <div>• Partial Profit Taking: <strong style="color:var(--cyan-accent);">1:2.0 RRR</strong> (50% Vol)</div>
+                    <div>• Max Allowed Spread: <strong style="color:#fff;">$0.30 (3 pips)</strong></div>
+                    <div>• News Blackout: <strong style="color:var(--gold);">[-15m, +15m] USD High</strong></div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Bottom Tables: Active Positions & Trade History -->
+    <footer class="bottom-section">
+        <div class="table-card">
+            <div class="table-header-tabs">
+                <button id="tab-trades-btn" class="tab-btn active" onclick="switchTab('trades')">Trade Audit Trail (SQLite)</button>
+                <button id="tab-pos-btn" class="tab-btn" onclick="switchTab('positions')">Active Positions & Risk Sentinel</button>
+            </div>
+            
+            <!-- Trades Pane -->
+            <div id="pane-trades" class="tab-pane table-responsive" style="display:block;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Trade ID</th>
+                            <th>Side</th>
+                            <th>Lots</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>RRR</th>
+                            <th>Net PnL</th>
+                            <th>Exit Reason</th>
+                            <th>Close Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-tbody">
+                        <tr><td colspan="9" style="text-align:center; color:#64748b;">No trades executed yet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Positions Pane -->
+            <div id="pane-positions" class="tab-pane table-responsive" style="display:none;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Side</th>
+                            <th>Volume</th>
+                            <th>Entry Price</th>
+                            <th>Current Price</th>
+                            <th>Stop Loss</th>
+                            <th>Take Profit</th>
+                            <th>Floating PnL</th>
+                            <th>Break-Even</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-tbody">
+                        <tr><td colspan="9" style="text-align:center; color:#64748b;">No active market positions</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
