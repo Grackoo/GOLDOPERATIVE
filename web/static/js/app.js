@@ -21,6 +21,7 @@ let chartMarkers = [];
 
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
+    fetchBars(currentTimeframe);
     connectWebSocket();
     fetchSystemStatus();
     fetchMetrics();
@@ -359,6 +360,26 @@ function updateClock() {
     // Approximate New York EST/EDT display
     const nyTimeStr = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false });
     document.getElementById("live-clock").textContent = `${nyTimeStr} NY (EST/EDT)`;
+}
+
+async function fetchBars(tf) {
+    try {
+        const res = await fetch(`/api/bars?timeframe=${tf}&count=120`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            candleSeries.setData(data);
+            chart.timeScale().fitContent();
+        }
+    } catch (e) {
+        console.error("Bars fetch error:", e);
+    }
+}
+
+function setTimeframe(tf, btnElement) {
+    currentTimeframe = tf;
+    document.querySelectorAll(".btn-tf").forEach((b) => b.classList.remove("active"));
+    if (btnElement) btnElement.classList.add("active");
+    fetchBars(tf);
 }
 
 function switchTab(tabId) {

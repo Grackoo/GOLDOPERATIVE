@@ -170,6 +170,66 @@ async def start_server_and_engine():
     trading_system = AureusTradingSystem()
     await trading_system.initialize()
 
+    # Share bar aggregator reference with FastAPI
+    app.state.bar_aggregator = trading_system.bar_aggregator
+
+    # In Sandbox/Paper mode, initialize baseline bars and start live tick simulator
+    feed_task = None
+    if settings.ENVIRONMENT in {"SANDBOX", "PAPER"} or settings.BROKER_TYPE == "PAPER":
+        import random
+        from datetime import datetime, timedelta, timezone
+        from core.models import Bar, LondonRange
+        from core.events import LondonRangeCalculatedEvent
+
+        now_utc = datetime.now(timezone.utc)
+        base_p = 2736.0
+
+        # Pre-populate M1 and M5 bars so the chart has immediate history
+        for i in range(120, 0, -1):
+            t = now_utc - timedelta(minutes=i)
+            base_p += random.uniform(-0.4, 0.4)
+            h = round(base_p + random.uniform(0.1, 0.5), 2)
+            l = round(base_p - random.uniform(0.1, 0.5), 2)
+            c = round(base_p, 2)
+            o = round(c + random.uniform(-0.2, 0.2), 2)
+            b = Bar(settings.SYMBOL, "M1", t, o, h, l, c, random.randint(30, 150), is_closed=True)
+            trading_system.bar_aggregator.m1_buffer.append(b)
+            if i % 5 == 0:
+                b5 = Bar(settings.SYMBOL, "M5", t, o, h + 0.3, l - 0.3, c, random.randint(150, 400), is_closed=True)
+                trading_system.bar_aggregator.m5_buffer.append(b5)
+
+        # Set default London Range for visual overlay
+        l_range = LondonRange(
+            date_str=time_manager.get_session_date_str(),
+            high=2745.00,
+            low=2730.00,
+            range_size=15.00,
+            is_finalized=True
+        )
+        trading_system.smc_engine.london_detector.current_range = l_range
+        await event_bus.publish(LondonRangeCalculatedEvent(london_range=l_range))
+
+        async def _market_feed_loop():
+            curr = 2736.0
+            while trading_system.running:
+                try:
+                    curr += random.uniform(-0.15, 0.15)
+                    curr = round(curr, 2)
+                    spread = round(random.uniform(0.14, 0.24), 2)
+                    bid = round(curr - (spread / 2.0), 2)
+                    ask = round(bid + spread, 2)
+                    ts = datetime.now(timezone.utc)
+                    await trading_system.feed_manager.ingest_tick(settings.SYMBOL, bid, ask, timestamp=ts)
+                    await asyncio.sleep(1.0)
+                except asyncio.CancelledError:
+                    break
+                except Exception as ex:
+                    logger.error(f"Feed simulator error: {ex}")
+                    await asyncio.sleep(1.0)
+
+        feed_task = asyncio.create_task(_market_feed_loop())
+        logger.info("Live market tick simulator active (1 Hz tick updates).")
+
     # Configure Uvicorn Web Server
     config = uvicorn.Config(
         app=app,
@@ -184,6 +244,8 @@ async def start_server_and_engine():
     try:
         await server.serve()
     finally:
+        if feed_task:
+            feed_task.cancel()
         await trading_system.shutdown()
 
 
