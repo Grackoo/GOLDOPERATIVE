@@ -29,6 +29,7 @@ let putTPLine = null;
 let pivotPPLine = null;
 let zonesVisible = false;
 let currentBriefing = null;
+let latestLiveBid = 4055.20;
 
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
@@ -155,6 +156,7 @@ function handleIncomingMessage(msg) {
 
 // 4. Tick & Candle Stream Handlers
 function handleTick(tick) {
+    if (tick && tick.bid) latestLiveBid = tick.bid;
     document.getElementById("live-bid").textContent = tick.bid.toFixed(2);
     document.getElementById("live-ask").textContent = tick.ask.toFixed(2);
     document.getElementById("live-spread").textContent = `$${tick.spread.toFixed(2)}`;
@@ -437,6 +439,9 @@ async function recalculateBriefing() {
         const data = await res.json();
         currentBriefing = data;
         updateBriefingUI(data);
+        triggerFlashEffect();
+        showToast(`✅ ¡Informe y Setups actualizados a las ${data.calculation_time || "N/A"}! (Spot: $${data.parameters.current_session_price.toFixed(2)} USD)`);
+
         if (zonesVisible) {
             // Refresh drawn lines
             clearZonesFromChart();
@@ -444,11 +449,139 @@ async function recalculateBriefing() {
         }
     } catch (e) {
         console.error("Error recalculating daily briefing:", e);
+        showToast("❌ Error al recalcular informe");
     } finally {
         if (btn) {
             btn.textContent = origText || "🔄 Actualizar Análisis y Setups Ahora";
             btn.disabled = false;
         }
+    }
+}
+
+function showToast(msg) {
+    const t = document.getElementById("toast-notification");
+    if (!t) return;
+    t.textContent = msg;
+    t.style.display = "flex";
+    setTimeout(() => {
+        t.style.display = "none";
+    }, 4500);
+}
+
+function triggerFlashEffect() {
+    const card = document.querySelector(".decision-card");
+    if (card) {
+        card.classList.remove("flash-update");
+        void card.offsetWidth;
+        card.classList.add("flash-update");
+    }
+    document.querySelectorAll(".setup-box").forEach(b => {
+        b.classList.remove("flash-update");
+        void b.offsetWidth;
+        b.classList.add("flash-update");
+    });
+}
+
+function openDailyDataModal() {
+    const modal = document.getElementById("modal-daily-data");
+    if (!modal) return;
+    
+    if (currentBriefing && currentBriefing.parameters) {
+        const p = currentBriefing.parameters;
+        setVal("m-open", p.us_open_spot);
+        setVal("m-current", p.current_session_price);
+        setVal("m-min", p.session_min);
+        setVal("m-max", p.session_max);
+        setVal("m-atr", p.atr_daily);
+        setVal("m-vpoc", p.session_vpoc);
+        setVal("m-hour", currentBriefing.calculation_time || "");
+    }
+    modal.style.display = "flex";
+}
+
+function closeDailyDataModal() {
+    const modal = document.getElementById("modal-daily-data");
+    if (modal) modal.style.display = "none";
+}
+
+function setVal(id, val) {
+    const el = document.getElementById(id);
+    if (el && val !== undefined && val !== null) el.value = val;
+}
+
+function useLivePriceInModal() {
+    const input = document.getElementById("m-current");
+    if (input) {
+        input.value = latestLiveBid.toFixed(2);
+        showToast(`⚡ Precio actual en vivo cargado: $${latestLiveBid.toFixed(2)} USD`);
+    }
+}
+
+async function saveAndRecalculateModal() {
+    const openPrice = parseFloat(document.getElementById("m-open").value) || null;
+    const currentPrice = parseFloat(document.getElementById("m-current").value) || null;
+    const minPrice = parseFloat(document.getElementById("m-min").value) || null;
+    const maxPrice = parseFloat(document.getElementById("m-max").value) || null;
+    const atr = parseFloat(document.getElementById("m-atr").value) || null;
+    const vpoc = parseFloat(document.getElementById("m-vpoc").value) || null;
+    const hour = document.getElementById("m-hour").value || null;
+
+    const payload = {
+        mode: "custom",
+        open_price: openPrice,
+        current_price: currentPrice,
+        min_price: minPrice,
+        max_price: maxPrice,
+        atr: atr,
+        vpoc: vpoc,
+        operating_hour: hour
+    };
+
+    try {
+        const res = await fetch("/api/daily-briefing/recalculate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error("Recalculate error");
+        const data = await res.json();
+        currentBriefing = data;
+        updateBriefingUI(data);
+        triggerFlashEffect();
+        closeDailyDataModal();
+        showToast(`💾 ¡Parámetros de tu documento guardados y aplicados a las ${data.calculation_time}!`);
+
+        if (zonesVisible) {
+            clearZonesFromChart();
+            drawZonesOnChart(data);
+        }
+    } catch (e) {
+        console.error("Save modal error:", e);
+        showToast("❌ Error al guardar y recalcular");
+    }
+}
+
+async function resetToLivePure() {
+    try {
+        const res = await fetch("/api/daily-briefing/recalculate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "reset_live" })
+        });
+        if (!res.ok) throw new Error("Reset error");
+        const data = await res.json();
+        currentBriefing = data;
+        updateBriefingUI(data);
+        triggerFlashEffect();
+        closeDailyDataModal();
+        showToast("🔄 Restablecido a modo Mercado en Vivo Puro (24/7)");
+
+        if (zonesVisible) {
+            clearZonesFromChart();
+            drawZonesOnChart(data);
+        }
+    } catch (e) {
+        console.error("Reset live error:", e);
     }
 }
 

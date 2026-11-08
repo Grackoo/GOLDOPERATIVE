@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from core.models import SystemState, OrderSide
@@ -338,31 +338,79 @@ async def get_bars(timeframe: str = "M1", count: int = 120):
 async def get_daily_briefing():
     """Retrieves current session parameters, pivot levels, COT data, and 1:3 CALL & PUT setups."""
     current_price = 4055.20
+    if hasattr(app.state, "feed_manager") and app.state.feed_manager and app.state.feed_manager.latest_tick:
+        current_price = app.state.feed_manager.latest_tick.bid
+    elif hasattr(app.state, "bar_aggregator") and app.state.bar_aggregator:
+        bars_m1 = app.state.bar_aggregator.get_latest_bars("M1", count=5)
+        if bars_m1:
+            current_price = bars_m1[-1].close
+
     bars = []
-    if hasattr(app.state, "bar_aggregator"):
+    if hasattr(app.state, "bar_aggregator") and app.state.bar_aggregator:
         bars = app.state.bar_aggregator.get_latest_bars("M15", count=60)
-        if bars:
-            current_price = bars[-1].close
+
     analysis = daily_decision_engine.calculate_session_parameters(current_price, bars)
     return analysis
 
 
 @app.post("/api/daily-briefing/recalculate")
-async def recalculate_daily_briefing():
-    """Recalculates setups and zones on demand for the exact current market hour/price."""
+async def recalculate_daily_briefing(request: Request):
+    """
+    Recalculates setups and zones on demand.
+    Accepts optional custom daily parameters or calculates from the real-time live market tick.
+    """
+    body: Dict[str, Any] = {}
+    try:
+        raw_body = await request.body()
+        if raw_body:
+            body = json.loads(raw_body)
+    except Exception:
+        body = {}
+
+    # If explicit parameters provided, persist them
+    if body and any(k in body for k in ["open_price", "current_price", "min_price", "max_price", "atr"]):
+        daily_decision_engine.save_stored_parameters(body)
+    elif body and body.get("mode") == "reset_live":
+        # Delete custom parameters file to revert to pure live mode
+        try:
+            if daily_decision_engine.input_file.exists():
+                daily_decision_engine.input_file.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to unlink daily_input.json: {e}")
+
+    # Determine real-time market price
     current_price = 4055.20
+    if hasattr(app.state, "feed_manager") and app.state.feed_manager and app.state.feed_manager.latest_tick:
+        current_price = app.state.feed_manager.latest_tick.bid
+    elif hasattr(app.state, "bar_aggregator") and app.state.bar_aggregator:
+        bars_m1 = app.state.bar_aggregator.get_latest_bars("M1", count=5)
+        if bars_m1:
+            current_price = bars_m1[-1].close
+
     bars = []
-    if hasattr(app.state, "bar_aggregator"):
+    if hasattr(app.state, "bar_aggregator") and app.state.bar_aggregator:
         bars = app.state.bar_aggregator.get_latest_bars("M15", count=60)
-        if bars:
-            current_price = bars[-1].close
-    analysis = daily_decision_engine.calculate_session_parameters(current_price, bars)
-    # Also write local storage copy of markdown report
+
+    analysis = daily_decision_engine.calculate_session_parameters(
+        current_price=current_price,
+        bars=bars,
+        custom_params=body if body else None
+    )
+
+    # Write local storage copy of markdown report
     md_content = daily_decision_engine.generate_markdown_report(analysis)
     report_path = Path("storage/INFORME_OPERATIVO_DIARIO.md")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(md_content, encoding="utf-8")
+
     return analysis
+
+
+@app.get("/api/daily-briefing/parameters")
+async def get_daily_parameters():
+    """Returns stored user parameters from storage/daily_input.json."""
+    params = daily_decision_engine.load_stored_parameters()
+    return params or {"mode": "live"}
 
 
 @app.websocket("/ws/stream")

@@ -5,8 +5,10 @@ and generates actionable CALL (Long) & PUT (Short) setups with strict 1:3 RRR.
 """
 
 from __future__ import annotations
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
 from core.models import Bar, Tick
@@ -20,24 +22,47 @@ class DailyDecisionEngine:
     """
     Synthesizes live market data, Volume Profile (VPOC), Pivot Points, and Institutional
     CFTC COT positioning to produce high-conviction intraday CALL & PUT orders.
+    Supports on-demand recalculation with real-time ticks or custom daily document parameters.
     """
 
     def __init__(self) -> None:
         self.last_analysis: Optional[Dict[str, Any]] = None
         self.last_updated: Optional[datetime] = None
+        self.input_file = Path("storage/daily_input.json")
+
+    def load_stored_parameters(self) -> Optional[Dict[str, Any]]:
+        """Loads persistent user parameters from storage/daily_input.json if present."""
+        try:
+            if self.input_file.exists():
+                data = json.loads(self.input_file.read_text(encoding="utf-8"))
+                return data
+        except Exception as e:
+            logger.warning(f"Could not load stored daily input parameters: {e}")
+        return None
+
+    def save_stored_parameters(self, params: Dict[str, Any]) -> None:
+        """Saves user parameters to storage/daily_input.json for persistent re-use."""
+        try:
+            self.input_file.parent.mkdir(parents=True, exist_ok=True)
+            self.input_file.write_text(json.dumps(params, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Failed to save daily input parameters: {e}")
 
     def calculate_session_parameters(
         self,
         current_price: float,
         bars: List[Bar],
-        open_price_override: Optional[float] = None
+        open_price_override: Optional[float] = None,
+        custom_params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Calculates session parameters, Pivot Points, VPOC, and exact 1:3 RRR CALL & PUT setups.
+        Combines live market data with custom document values if specified.
         """
         now = datetime.now(timezone.utc)
         ny_time = time_manager.to_ny_time(now)
 
+        # Baseline extraction from bars or fallback
         if not bars:
             high_price = round(current_price * 1.008, 2)
             low_price = round(current_price * 0.992, 2)
@@ -50,14 +75,12 @@ class DailyDecisionEngine:
             low_price = min(b.low for b in bars)
             open_price = open_price_override or bars[0].open
             close_price = current_price
-            # Volume-Weighted Average Price / VPOC proxy
             total_vol = sum(b.volume for b in bars)
             if total_vol > 0:
                 vpoc_price = round(sum(b.close * b.volume for b in bars) / total_vol, 2)
             else:
                 vpoc_price = round((high_price + low_price) / 2.0, 2)
 
-            # ATR calculation (14 periods)
             tr_list = []
             for i in range(1, len(bars)):
                 c = bars[i]
@@ -66,9 +89,30 @@ class DailyDecisionEngine:
                 tr_list.append(tr)
             atr_val = round(float(np.mean(tr_list[-14:])) if len(tr_list) >= 5 else 35.0, 2)
 
+        # Apply stored or explicit custom parameters from user document if active
+        active_params = custom_params or self.load_stored_parameters()
+        operating_time_str = ny_time.strftime("%I:%M:%S %p CST")
+
+        if active_params and active_params.get("mode") != "live_pure":
+            if "open_price" in active_params and active_params["open_price"]:
+                open_price = float(active_params["open_price"])
+            if "current_price" in active_params and active_params["current_price"]:
+                current_price = float(active_params["current_price"])
+                close_price = current_price
+            if "min_price" in active_params and active_params["min_price"]:
+                low_price = float(active_params["min_price"])
+            if "max_price" in active_params and active_params["max_price"]:
+                high_price = float(active_params["max_price"])
+            if "atr" in active_params and active_params["atr"]:
+                atr_val = float(active_params["atr"])
+            if "vpoc" in active_params and active_params["vpoc"]:
+                vpoc_price = float(active_params["vpoc"])
+            if "operating_hour" in active_params and active_params["operating_hour"]:
+                operating_time_str = str(active_params["operating_hour"])
+
         # Operational metrics
         session_range = round(high_price - low_price, 2)
-        pct_change = round(((current_price - open_price) / open_price) * 100.0, 2)
+        pct_change = round(((current_price - open_price) / open_price) * 100.0, 2) if open_price > 0 else 0.0
         atr_consumed_pct = round((session_range / atr_val * 100.0), 1) if atr_val > 0 else 100.0
 
         # --- Daily Pivot Points (Standard Institutional Formula) ---
@@ -81,10 +125,13 @@ class DailyDecisionEngine:
         s3 = round(low_price - 2.0 * (high_price - pp), 2)
 
         # --- Institutional COT (CFTC Managed Money) Baseline ---
+        cot_longs = int(active_params.get("cot_longs", 203_500)) if active_params else 203_500
+        cot_shorts = int(active_params.get("cot_shorts", 34_200)) if active_params else 34_200
+        cot_net = cot_longs - cot_shorts
         cot_data = {
-            "long_contracts": 203_500,
-            "short_contracts": 34_200,
-            "net_position": 169_300,
+            "long_contracts": cot_longs,
+            "short_contracts": cot_shorts,
+            "net_position": cot_net,
             "change_vs_prior": "+2,350 contratos",
             "interpretation": (
                 "Pese a la volatilidad intradía, los fondos de cobertura (Managed Money) "
@@ -96,12 +143,11 @@ class DailyDecisionEngine:
         # --- Generación de Setups CALL y PUT con Ratio Riesgo/Beneficio 1:3 Exacto ---
 
         # 1. SETUP CALL (Compra / Rebote en Soporte Clave con Absorción)
-        # Zona de compra: alrededor de S2/S3 o barrido del mínimo de sesión
-        call_risk_distance = round(atr_val * 0.25, 2)  # Riesgo ~ 0.25 ATR
+        call_risk_distance = round(atr_val * 0.25, 2)
         if call_risk_distance < 6.0:
-            call_risk_distance = 12.0
+            call_risk_distance = 14.0
 
-        call_entry = round(low_price + 2.50, 2)
+        call_entry = round(low_price + (10.80 if atr_val >= 50 else atr_val * 0.20), 2)
         call_sl = round(call_entry - call_risk_distance, 2)
         call_tp = round(call_entry + (call_risk_distance * 3.0), 2)  # 1:3 Exacto
 
@@ -111,7 +157,7 @@ class DailyDecisionEngine:
             "zona_operativa": f"${round(s3, 2)} - ${round(s2, 2)} USD",
             "condicion": (
                 f"Vela de 15 min con mecha de rechazo en la zona ${round(low_price, 2)} - ${round(s2, 2)} USD "
-                f"y cierre de confirmación por encima de ${round(call_entry - 1.0, 2)} con volumen institucional."
+                f"y cierre de confirmación por encima de ${round(call_entry - 2.0, 2)} con volumen institucional."
             ),
             "precio_entrada": call_entry,
             "stop_loss": call_sl,
@@ -122,8 +168,8 @@ class DailyDecisionEngine:
             "objetivo_tecnico": f"Retesteo del Punto Pivote Central (PP) o S1 (${s1} - ${pp})"
         }
 
-        # 2. SETUP PUT (Venta / Ruptura Bajista de Mínimo o Rechazo en Resistencia)
-        put_risk_distance = round(atr_val * 0.20, 2)  # Riesgo ~ 0.20 ATR
+        # 2. SETUP PUT (Venta / Ruptura Bajista de Mínimo)
+        put_risk_distance = round(atr_val * 0.18, 2)
         if put_risk_distance < 5.0:
             put_risk_distance = 10.0
 
@@ -159,8 +205,8 @@ class DailyDecisionEngine:
 
         result = {
             "timestamp": now.isoformat(),
-            "hora_cst": ny_time.strftime("%I:%M:%S %p CST"),
-            "calculation_time": ny_time.strftime("%I:%M:%S %p CST"),
+            "hora_cst": operating_time_str,
+            "calculation_time": operating_time_str,
             "session": "Apertura EE. UU. (US Open)",
             "fecha": ny_time.strftime("%Y-%m-%d"),
             "parametros_sesion": {
