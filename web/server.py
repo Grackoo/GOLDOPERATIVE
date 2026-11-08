@@ -307,7 +307,8 @@ async def get_bars(timeframe: str = "M1", count: int = 120):
     if not bars_data:
         from datetime import timedelta, timezone
         now = datetime.now(timezone.utc)
-        step = 60 if timeframe.upper() == "M1" else 300
+        step_map = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800}
+        step = step_map.get(timeframe.upper(), 60)
         base_price = 2735.0
         import random
         prices = []

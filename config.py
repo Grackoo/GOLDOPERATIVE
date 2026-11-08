@@ -82,6 +82,13 @@ class SystemSettings(BaseSettings):
     # --- Broker Gateway Selection ---
     BROKER_TYPE: Literal["PAPER", "MT5", "OANDA"] = "PAPER"
 
+    # --- Live Real-Time Market Data Feed ---
+    # REAL_GOLD: 24/7 Real Spot Gold (XAU/USD) live WebSocket feed with real tick-by-tick prices
+    # MT5: Live ticks directly from MetaTrader 5 terminal
+    # OANDA: Live ticks from OANDA v20 pricing stream
+    # SIMULATED: Synthetic tick generator for off-market simulation
+    DATA_FEED_SOURCE: Literal["REAL_GOLD", "MT5", "OANDA", "SIMULATED"] = "REAL_GOLD"
+
     # MT5 Configuration (Optional / If Active)
     MT5_LOGIN: int = 0
     MT5_PASSWORD: str = ""
@@ -108,6 +115,8 @@ class SystemSettings(BaseSettings):
     WS_HEARTBEAT_INTERVAL: float = 5.0
     CANDLE_BUFFER_SIZE_M1: int = 1440         # 24 hours of 1-minute bars
     CANDLE_BUFFER_SIZE_M5: int = 576          # 48 hours of 5-minute bars
+    CANDLE_BUFFER_SIZE_M15: int = 384         # 4 days of 15-minute bars
+    CANDLE_BUFFER_SIZE_M30: int = 192         # 4 days of 30-minute bars
     TICK_BUFFER_SIZE: int = 50_000            # Circular tick cache
 
 

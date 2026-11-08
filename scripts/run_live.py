@@ -173,9 +173,28 @@ async def start_server_and_engine():
     # Share bar aggregator reference with FastAPI
     app.state.bar_aggregator = trading_system.bar_aggregator
 
-    # In Sandbox/Paper mode, initialize baseline bars and start live tick simulator
     feed_task = None
-    if settings.ENVIRONMENT in {"SANDBOX", "PAPER"} or settings.BROKER_TYPE == "PAPER":
+    real_stream = None
+
+    # 1. Connect Real-Time Live Gold (XAU/USD) Data Stream
+    if settings.DATA_FEED_SOURCE == "REAL_GOLD":
+        from data.live_feed import RealGoldStreamFeed
+        real_stream = RealGoldStreamFeed(trading_system.feed_manager, trading_system.bar_aggregator)
+        await real_stream.start()
+
+        # Compute actual London Range from loaded history
+        for b in trading_system.bar_aggregator.m5_buffer:
+            trading_system.smc_engine.london_detector.process_bar(b)
+        if trading_system.smc_engine.london_range:
+            trading_system.smc_engine.london_detector.finalize_range()
+
+    elif settings.DATA_FEED_SOURCE == "MT5":
+        from data.live_feed import MT5LiveFeed
+        mt5_feed = MT5LiveFeed(trading_system.feed_manager)
+        await mt5_feed.start()
+
+    else:
+        # Fallback synthetic simulator
         import random
         from datetime import datetime, timedelta, timezone
         from core.models import Bar, LondonRange
@@ -184,7 +203,6 @@ async def start_server_and_engine():
         now_utc = datetime.now(timezone.utc)
         base_p = 2736.0
 
-        # Pre-populate M1 and M5 bars so the chart has immediate history
         for i in range(120, 0, -1):
             t = now_utc - timedelta(minutes=i)
             base_p += random.uniform(-0.4, 0.4)
@@ -194,20 +212,6 @@ async def start_server_and_engine():
             o = round(c + random.uniform(-0.2, 0.2), 2)
             b = Bar(settings.SYMBOL, "M1", t, o, h, l, c, random.randint(30, 150), is_closed=True)
             trading_system.bar_aggregator.m1_buffer.append(b)
-            if i % 5 == 0:
-                b5 = Bar(settings.SYMBOL, "M5", t, o, h + 0.3, l - 0.3, c, random.randint(150, 400), is_closed=True)
-                trading_system.bar_aggregator.m5_buffer.append(b5)
-
-        # Set default London Range for visual overlay
-        l_range = LondonRange(
-            date_str=time_manager.get_session_date_str(),
-            high=2745.00,
-            low=2730.00,
-            range_size=15.00,
-            is_finalized=True
-        )
-        trading_system.smc_engine.london_detector.current_range = l_range
-        await event_bus.publish(LondonRangeCalculatedEvent(london_range=l_range))
 
         async def _market_feed_loop():
             curr = 2736.0
@@ -244,6 +248,8 @@ async def start_server_and_engine():
     try:
         await server.serve()
     finally:
+        if real_stream:
+            await real_stream.stop()
         if feed_task:
             feed_task.cancel()
         await trading_system.shutdown()
