@@ -1,149 +1,134 @@
-# AUREUS-SMC Institutional Gold (XAU/USD) Algorithmic Engine
+# AUREUS-SMC Motor Algorítmico Institucional de Oro (XAU/USD)
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Architecture](https://img.shields.io/badge/architecture-Event--Driven-gold.svg)
-![Database](https://img.shields.io/badge/sqlite-WAL%20Mode-green.svg)
-![Frontend](https://img.shields.io/badge/dashboard-FastAPI%20%7C%20TradingView%20v4-cyan.svg)
-![Latency](https://img.shields.io/badge/latency-%3C5ms%20Equinix%20NY4-red.svg)
+![Arquitectura](https://img.shields.io/badge/arquitectura-Event--Driven-gold.svg)
+![Base de Datos](https://img.shields.io/badge/sqlite-Modo%20WAL-green.svg)
+![Dashboard](https://img.shields.io/badge/dashboard-FastAPI%20%7C%20TradingView%20v4-cyan.svg)
+![Latencia](https://img.shields.io/badge/latencia-%3C5ms%20Equinix%20NY4-red.svg)
 
-**AUREUS-SMC** is an institutional-grade, event-driven quantitative trading system engineered in Python 3.11+ specifically for **Gold (XAU/USD)**. It automates the **London Session Liquidity Sweep and New York Open Displacement** Smart Money Concepts (SMC) strategy during the institutional window (08:00 AM – 10:30 AM EST/EDT) with dynamic Daylight Saving Time (DST) synchronization.
+**AUREUS-SMC** es un sistema de trading cuantitativo institucional de eventos de alta concurrencia programado en **Python 3.11+** para el CFD de **Oro (XAU/USD)**. Automatiza la estrategia de **Barrido de Liquidez de la Sesión de Londres y Desplazamiento en la Apertura de Nueva York** bajo conceptos institucionales (Smart Money Concepts - SMC) durante la ventana operativa (08:00 AM – 10:30 AM EST/EDT) con soporte dinámico para horario de verano (Daylight Saving Time - DST).
 
 ---
 
-## 🏛️ Modular System Architecture
+## 🏛️ Arquitectura Modular del Sistema
 
-The architecture enforces strict decoupling via the **Observer Pattern / Asynchronous Event Bus**:
+El sistema implementa una arquitectura desacoplada basada en el patrón **Event Bus / Observador**:
 
 ```
-AUREUS-SMC/
+GOLDOPERATIVE/
+├── config.py                 # Configuración tipada con Pydantic Settings
+├── .env.example              # Plantilla estandarizada de variables de entorno
+├── requirements.txt          # Dependencias fijadas del proyecto
+├── iniciar_sistema.bat       # Lanzador en 1 clic para Windows (abre el dashboard)
+├── probar_sandbox.bat        # Ejecutor en 1 clic del simulador de prueba
 ├── core/
-│   ├── models.py            # Strongly-typed dataclasses & Pydantic domain models
-│   ├── events.py            # Strongly-typed event contracts
-│   ├── event_bus.py         # Sub-millisecond asynchronous Event Bus (AsyncEventBus)
-│   ├── state_machine.py     # Institutional State Machine with strict transition validation
-│   └── time_manager.py      # ZoneInfo Timezone Manager (America/New_York) with dynamic DST
+│   ├── models.py             # Modelos de datos: Tick, Bar, FVG, Order, Position, TradeRecord
+│   ├── events.py             # Eventos tipados del Event Bus
+│   ├── event_bus.py          # Bus de eventos asíncrono desacoplado
+│   ├── state_machine.py      # Máquina de estados con transiciones determinísticas
+│   └── time_manager.py       # Gestor horario (America/New_York) con soporte dinámico DST
 ├── data/
-│   ├── ring_buffer.py       # High-performance circular buffers (O(1) lookbacks)
-│   ├── bar_aggregator.py    # Tick-to-candle aggregator (real-time M1 & M5 generation)
-│   └── feed_manager.py      # Asset normalization & DXY/US10Y macro correlation buffers
+│   ├── ring_buffer.py        # Buffers circulares O(1) para ticks y velas
+│   ├── bar_aggregator.py     # Agregador de velas en tiempo real M1 y M5
+│   └── feed_manager.py       # Normalización de ticks y feeds de correlación DXY / US10Y
 ├── strategy/
-│   ├── london_range.py      # London Session (03:00 - 08:00 EST) High/Low liquidity tracking
-│   ├── liquidity_sweep.py   # Wick penetration beyond London range with close inside (Turtle Soup)
-│   ├── displacement.py      # Market Structure Shift (MSS/CHOCH) qualified by ATR (>1.5x ATR)
-│   ├── fvg_detector.py      # 3-candle imbalance (FVG) & Consequent Encroachment (50% CE)
-│   └── smc_engine.py        # Central SMC strategy coordinator synthesizing setups
+│   ├── london_range.py       # Rango de Londres (03:00 - 08:00 EST): High/Low BSL/SSL
+│   ├── liquidity_sweep.py    # Detección de barrido de liquidez con rechazo inmediato
+│   ├── displacement.py       # Quiebre de estructura (MSS / CHOCH) validado con ATR > 1.5
+│   ├── fvg_detector.py       # Detección de FVG y Consequent Encroachment (50% CE)
+│   ├── fractals.py           # Swings fractales Williams
+│   ├── indicators.py         # Indicador ATR(14) de alta velocidad
+│   └── smc_engine.py         # Orquestador del ciclo completo SMC
 ├── risk/
-│   ├── position_sizer.py    # Dynamic lot sizing: Lots = (Balance * %Risk) / (SL * Contract_Size)
-│   ├── spread_filter.py     # Microstructure gate (max $0.30 spread tolerance)
-│   ├── circuit_breaker.py   # Kill Switches: Max 2 trades/session, 2% Daily Drawdown hard stop
-│   └── order_manager.py     # Active Order Management: 1:1.5 RRR BE shift, 1:2.0 RRR 50% partial
+│   ├── position_sizer.py     # Dimensionamiento matemático de lotes por capital
+│   ├── spread_filter.py      # Filtro de microestructura (límite máx. spread $0.30)
+│   ├── circuit_breaker.py    # Circuit Breakers: Máx 2 operaciones y Hard Stop 2% Drawdown
+│   └── order_manager.py      # Gestión activa: Break-Even a 1:1.5 RRR y cierre parcial 50% a 1:2.0 RRR
 ├── execution/
-│   ├── base_broker.py       # Abstract BaseBrokerClient interface
-│   ├── paper_broker.py      # Institutional Paper Simulator (10-35ms latency, stochastic slippage)
-│   ├── mt5_broker.py        # MetaTrader 5 institutional adapter
-│   └── oanda_broker.py      # OANDA v20 REST & Streaming API adapter
+│   ├── base_broker.py        # Interfaz abstracta BaseBrokerClient
+│   ├── paper_broker.py       # Simulador institucional (latencia 10-35ms y deslizamiento estocástico)
+│   ├── mt5_broker.py         # Adaptador oficial para MetaTrader 5
+│   └── oanda_broker.py       # Adaptador asíncrono para OANDA v20 REST y Streaming
 ├── storage/
-│   ├── db.py                # Asynchronous aiosqlite engine configured with PRAGMA journal_mode=WAL
-│   ├── repository.py        # SQLite persistence and state rehydration on reboot
-│   └── metrics_calc.py      # Win Rate, Profit Factor, Sharpe Ratio, Max Drawdown
+│   ├── db.py                 # Conexión SQLite asíncrona en modo WAL
+│   ├── repository.py         # Persistencia de trades y rehidratación automática de estado
+│   └── metrics_calc.py       # Cálculo de métricas: Win Rate, Profit Factor, Sharpe Ratio
 ├── macro/
-│   ├── news_calendar.py     # Economic calendar parser (ForexFactory / Investing JSON feed)
-│   └── news_filter.py       # Blackout window gate: [-15 min, +15 min] for High Impact USD releases
+│   ├── news_calendar.py      # Extracción de calendario económico (ForexFactory / Investing)
+│   └── news_filter.py        # Bloqueo de entradas 15m antes y 15m después de noticias rojas
 ├── web/
-│   ├── server.py            # FastAPI REST & WebSocket streaming server
-│   └── static/              # Dark institutional TradingView Lightweight Charts v4 dashboard
+│   ├── server.py             # Servidor FastAPI y WebSocket hub
+│   └── static/
+│       ├── index.html        # Frontend interactivo para trading desk
+│       ├── css/style.css     # Estilos Dark institucionales
+│       └── js/app.js         # Cliente WebSocket y renderizado TradingView Lightweight Charts v4
 ├── scripts/
-│   ├── run_sandbox.py       # Comprehensive verification runner with complete SMC replay
-│   └── run_live.py          # Production launcher with signal handlers
-├── deployment/
-│   ├── Dockerfile           # Multi-stage production container
-│   ├── docker-compose.yml   # Container orchestration
-│   ├── aureus-trading.service # systemd unit file for Linux VPS
-│   └── NY4_DEPLOYMENT_GUIDE.md # Equinix NY4 VPS tuning for <5ms latency
-├── config.py                # Pydantic Settings singleton with .env support
-└── requirements.txt         # Frozen dependencies
+│   ├── run_sandbox.py        # Replay y validación completa de las 7 fases de la estrategia
+│   └── run_live.py           # Lanzador del sistema en vivo con servidor web
+└── deployment/
+    ├── Dockerfile            # Imagen de producción Docker
+    ├── docker-compose.yml    # Orquestación de contenedores
+    ├── aureus-trading.service# Servicio systemd para Linux VPS
+    ├── deploy_ny4.sh         # Script de despliegue automatizado para Equinix NY4
+    └── GUIA_DESPLIEGUE_NY4.md# Guía completa de optimización de kernel y red
 ```
 
 ---
 
-## ⚡ Core Strategy Specification (SMC XAU/USD)
+## ⚡ Especificación de la Estrategia SMC (XAU/USD)
 
-1. **London Session Liquidity Accumulation (03:00 AM – 08:00 AM EST):**
-   - Automatically computes and locks the London High (Buy-Side Liquidity - BSL) and London Low (Sell-Side Liquidity - SSL) at 08:00 AM EST.
-2. **NY Open Liquidity Sweep (08:00 AM – 10:30 AM EST):**
-   - Price penetrates beyond the London High or Low with a wick, but closes back *inside* the London range (confirming institutional trap liquidity).
-3. **Displacement & Market Structure Shift (MSS / CHOCH):**
-   - Price reverses impulsively, breaking local structure. The displacement candle's body size must strictly exceed **1.5 × ATR(14)** to eliminate retail noise.
-4. **Fair Value Gap (FVG) & Consequent Encroachment:**
-   - Detects 3-candle imbalance. Limit/market entry triggered upon mitigation of the **50% Consequent Encroachment (CE)** level.
-5. **Macro News Blackout Filter:**
-   - Automatically pauses all order entries **15 minutes before and 15 minutes after** high-impact USD events (NFP, CPI, FOMC).
+1. **Rango de Londres (03:00 AM - 08:00 AM EST):** Identificación automática del Máximo (Buy-Side Liquidity) y Mínimo (Sell-Side Liquidity).
+2. **Barrido de Liquidez en la Apertura de NY (08:00 AM - 10:30 AM EST):** Penetración con mecha fuera del rango de Londres en M5/M1 con rechazo inmediato (cierre de vela nuevamente dentro del rango).
+3. **Desplazamiento y Market Structure Shift (MSS / CHOCH):** Quiebre de estructura con vela de rango amplio calificada mediante ATR ($\text{Cuerpo} > 1.5 \times \text{ATR}(14)$).
+4. **Fair Value Gap (FVG):** Localización de desequilibrio de 3 velas. Entrada al toque del 50% del FVG (Consequent Encroachment) o al borde.
+5. **Filtro de Noticias:** Bloqueo automático de entradas desde 15 minutos antes hasta 15 minutos después de noticias de alto impacto en USD (NFP, CPI, FOMC).
 
 ---
 
-## 📐 Mathematical Risk Engine
+## 📐 Motor de Riesgo Matemático y Gestión Activa
 
-### 1. Position Sizing
-$$\text{Lots} = \frac{\text{Balance} \times \text{Risk}\%}{\text{SL\_Distance}_{\$} \times \text{Contract Size}}$$
-- Standard XAU/USD CFD contract size = **100 Troy Ounces per Lot**.
+### Ecuación de Dimensionamiento:
+$$\text{Lotes} = \frac{\text{Balance} \times (\% \text{Riesgo} / 100)}{\text{Distancia\_SL}_{\$} \times \text{Contract Size}}$$
+- 1 Lote estándar = **100 onzas troy**.
 - Tick size = **$0.01**.
-- Example: $100,000 balance with 1.0% risk ($1,000) and $7.60 SL distance:
-  $$\text{Lots} = \frac{1000}{7.60 \times 100} = 1.31 \text{ lots}$$
+- Ejemplo: Balance de $100,000 con 1.0% de riesgo ($1,000) y SL de $7.60:
+  $$\text{Lotes} = \frac{1000}{7.60 \times 100} = 1.31\text{ lotes}$$
 
-### 2. Strict Risk-Reward Ratio (1:3 Minimum)
-- Take Profit is configured at **1:3.0 RRR** minimum relative to initial risk.
-
-### 3. Dynamic Order Progression
-- **1:1.5 RRR:** Stop Loss moves to **Break-Even + $0.10** buffer (covering spread and commissions).
-- **1:2.0 RRR:** Executes **50% partial close** of position volume. Residual volume runs to full 1:3 TP.
-
-### 4. Circuit Breakers & Kill Switches
-- **Hard Stop Daily Drawdown:** System automatically halts if daily loss reaches **2.0%**.
-- **Max Trades Per Session:** Hard cap of **2 trades per morning session**.
+### Gestión Dinámica:
+- **Take Profit inicial:** Mínimo **1:3.0 RRR**.
+- **A 1:1.5 RRR:** Desplazamiento automático del Stop Loss a **Break-Even + $0.10** (cubre comisiones y spread).
+- **A 1:2.0 RRR:** Cierre parcial del **50% del volumen**, permitiendo al remanente buscar el 1:3 RRR protegido.
+- **Circuit Breakers:** Máximo 2 operaciones por sesión matutina y Hard Stop por Drawdown diario del 2%.
 
 ---
 
-## 🚀 Quickstart & Verification
+## 🚀 Puesta en Marcha Rápida (Local)
 
-### 1. Setup Virtual Environment
-```bash
-python -m venv .venv
-
-# Linux/macOS
-source .venv/bin/activate
-
-# Windows
-.venv\Scripts\activate
-
-pip install -r requirements.txt
+### 1. Probar la Simulación Sandbox en 1 Clic
+Haga doble clic en `probar_sandbox.bat` o ejecute:
+```powershell
+.venv\Scripts\python.exe scripts\run_sandbox.py
 ```
 
-### 2. Run Sandbox Replay & Verification
-Execute the complete institutional simulation demonstrating all 7 phases:
-```bash
-python scripts/run_sandbox.py
+### 2. Iniciar el Sistema en Vivo y Dashboard
+Haga doble clic en `iniciar_sistema.bat` o ejecute:
+```powershell
+.venv\Scripts\python.exe scripts\run_live.py
 ```
-
-### 3. Launch Live Production Engine & Web Dashboard
-```bash
-python scripts/run_live.py
-```
-Open your browser at:
+El panel web se abrirá automáticamente en:
 ```
 http://localhost:8000
 ```
 
 ---
 
-## 📊 High-Speed WebSocket Dashboard
+## 🌐 Despliegue en VPS Linux (Equinix NY4)
 
-The dashboard provides:
-- **TradingView Lightweight Charts v4+** with dynamic multi-layer canvas rendering.
-- **Live Overlays:** London High/Low (BSL/SSL), Liquidity Sweeps, MSS/CHOCH, Fair Value Gaps, Stop Loss, Take Profit, and Break-Even lines.
-- **Real-Time KPIs:** Win Rate %, Profit Factor, Annualized Sharpe Ratio, Max Drawdown %, and Live Floating PnL.
-- **SQLite Trade Audit Trail:** Instant display of closed trades with R-multiples and execution breakdown.
+Para desplegar en Ubuntu 22.04 / 24.04 LTS en Equinix NY4 (Secaucus, NJ) con latencia < 5ms:
 
----
+```bash
+chmod +x deployment/deploy_ny4.sh
+sudo ./deployment/deploy_ny4.sh
+```
 
-## 🛡️ License
-Proprietary Institutional Quantitative Software. All rights reserved.
+Consulte [GUIA_DESPLIEGUE_NY4.md](deployment/GUIA_DESPLIEGUE_NY4.md) para más detalles.
