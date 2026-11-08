@@ -1,12 +1,12 @@
 # 4. MÓDULO AVANZADO PARA CFDS DE ORO (XAU/USD)
-*Precios y niveles tomados estrictamente en la apertura de contado de EE. UU. y sesión matutina actual (05:21:32 PM CST).*
+*Precios y niveles tomados estrictamente en la apertura de contado de EE. UU. y sesión matutina actual (05:29:30 PM CST).*
 
 ---
 
 ## Parámetros Operativos de la Sesión
 
 - **Precio Spot a la Apertura de EE. UU. (08:30 CST):** $4,060.04 USD
-- **Precio Actual en Sesión (05:21:32 PM CST):** $4,038.39 USD (-0.53%)
+- **Precio Actual en Sesión (05:29:30 PM CST):** $4,038.39 USD (-0.53%)
 - **Rango de la Sesión:** Mínimo: $4,032.34 USD | Máximo: $4,060.85 USD
 - **Rango Recorrido:** $28.51 USD
 - **ATR Diario (14 periodos):** $3.44 USD
