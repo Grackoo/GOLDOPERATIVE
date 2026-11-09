@@ -19,6 +19,10 @@ let breakEvenLine = null;
 // Tracked markers (Swings, Sweeps, Entries)
 let chartMarkers = [];
 
+// Active Position Chart Lines: { [position_id]: { entryLine, slLine, tpLine } }
+let activePositionChartLines = {};
+let lastKnownPositions = [];
+
 // Daily Decision & Setups Lines
 let callEntryLine = null;
 let callSLLine = null;
@@ -339,6 +343,9 @@ async function fetchPositions() {
         const posList = await res.json();
         const tbody = document.getElementById("positions-tbody");
         tbody.innerHTML = "";
+        lastKnownPositions = posList || [];
+        syncActivePositionLinesOnChart(lastKnownPositions);
+
         if (posList.length === 0) {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#64748b;">No active market positions</td></tr>';
             return;
@@ -393,6 +400,12 @@ async function fetchBars(tf) {
         if (data && data.length > 0) {
             candleSeries.setData(data);
             chart.timeScale().fitContent();
+            if (chartMarkers.length > 0) {
+                candleSeries.setMarkers(chartMarkers);
+            }
+            if (lastKnownPositions && lastKnownPositions.length > 0) {
+                syncActivePositionLinesOnChart(lastKnownPositions);
+            }
         }
     } catch (e) {
         console.error("Bars fetch error:", e);
@@ -791,7 +804,81 @@ function formatMarkdownToHTML(md) {
     return html;
 }
 
-// 7. Interactive Trade Execution & Audit Actions
+// 7. Interactive Trade Execution & Chart Visualization Engine
+function clearAllPositionChartLines() {
+    for (const posId in activePositionChartLines) {
+        removePositionChartLines(posId);
+    }
+    activePositionChartLines = {};
+}
+
+function removePositionChartLines(positionId) {
+    const lines = activePositionChartLines[positionId];
+    if (lines) {
+        if (lines.entryLine) candleSeries.removePriceLine(lines.entryLine);
+        if (lines.slLine) candleSeries.removePriceLine(lines.slLine);
+        if (lines.tpLine) candleSeries.removePriceLine(lines.tpLine);
+        delete activePositionChartLines[positionId];
+    }
+}
+
+function renderPositionOnChart(p) {
+    if (!candleSeries) return;
+    removePositionChartLines(p.position_id);
+
+    const isBuy = p.side === "BUY";
+    const entryColor = isBuy ? "#10b981" : "#ef4444";
+
+    // 1. Entry Line
+    const entryLine = candleSeries.createPriceLine({
+        price: p.entry_price,
+        color: entryColor,
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: `${isBuy ? '🟢' : '🔴'} ${p.side} #${p.ticket} @ $${p.entry_price.toFixed(2)} (${p.volume.toFixed(2)}L)`,
+    });
+
+    // 2. Stop Loss Line
+    const slLine = candleSeries.createPriceLine({
+        price: p.stop_loss,
+        color: "#ef4444",
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `🛑 SL #${p.ticket} @ $${p.stop_loss.toFixed(2)}`,
+    });
+
+    // 3. Take Profit Line
+    const tpLine = candleSeries.createPriceLine({
+        price: p.take_profit,
+        color: "#10b981",
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `🎯 TP 1:3 #${p.ticket} @ $${p.take_profit.toFixed(2)}`,
+    });
+
+    activePositionChartLines[p.position_id] = { entryLine, slLine, tpLine };
+}
+
+function syncActivePositionLinesOnChart(posList) {
+    if (!candleSeries) return;
+    const currentPosIds = new Set(posList.map(p => p.position_id));
+
+    // Remove old lines not in active positions
+    for (const posId in activePositionChartLines) {
+        if (!currentPosIds.has(posId)) {
+            removePositionChartLines(posId);
+        }
+    }
+
+    // Render active lines
+    posList.forEach(p => {
+        renderPositionOnChart(p);
+    });
+}
+
 function setExecLots(val) {
     const input = document.getElementById("exec-lots");
     if (input) input.value = val.toFixed(2);
@@ -884,6 +971,7 @@ async function closePosition(positionId) {
         const res = await fetch(`/api/positions/${positionId}/close`, { method: "POST" });
         const data = await res.json();
         if (data.success) {
+            removePositionChartLines(positionId);
             const pnlStr = data.net_pnl >= 0 ? `+$${data.net_pnl.toFixed(2)}` : `-$${Math.abs(data.net_pnl).toFixed(2)}`;
             showToast(`🔔 Posición cerrada exitosamente | PnL Realizado: ${pnlStr} USD`);
             fetchPositions();
@@ -906,7 +994,10 @@ async function resetAuditTrail() {
         const res = await fetch("/api/trades/reset", { method: "POST" });
         const data = await res.json();
         if (data.success) {
-            showToast("🗑️ ¡Auditoría reiniciada! 0 operaciones cerradas. Cuenta limpia.");
+            clearAllPositionChartLines();
+            chartMarkers = [];
+            candleSeries.setMarkers([]);
+            showToast("🗑️ ¡Auditoría reiniciada! 0 operaciones cerradas. Gráfico limpio.");
             fetchTrades();
             fetchPositions();
             fetchMetrics();
@@ -918,6 +1009,14 @@ async function resetAuditTrail() {
 
 function handleOrderFilledEvent(data) {
     showToast(`⚡ Orden Ejecutada en Mercado: #${data.ticket} ${data.side} ${data.volume}L @ $${data.entry_price.toFixed(2)}`);
+    renderPositionOnChart(data);
+    addMarker({
+        time: Math.floor(new Date(data.time || Date.now()).getTime() / 1000),
+        position: data.side === "BUY" ? "belowBar" : "aboveBar",
+        color: data.side === "BUY" ? "#10b981" : "#ef4444",
+        shape: data.side === "BUY" ? "arrowUp" : "arrowDown",
+        text: `EJECUTADA #${data.ticket}: ${data.side} ${data.volume.toFixed(2)}L @ $${data.entry_price.toFixed(2)}`,
+    });
     fetchPositions();
     fetchMetrics();
 }
@@ -926,6 +1025,14 @@ function handlePositionClosedEvent(data) {
     const isWin = data.net_pnl >= 0;
     const pnlSign = isWin ? "+" : "";
     showToast(`🏁 Posición Cerrada: ${data.side} [${data.reason}] | PnL Neto: ${pnlSign}$${data.net_pnl.toFixed(2)} USD (${data.r_multiple >= 0 ? '+' : ''}${data.r_multiple.toFixed(1)}R)`);
+    removePositionChartLines(data.position_id);
+    addMarker({
+        time: Math.floor(new Date(data.time || Date.now()).getTime() / 1000),
+        position: data.side === "BUY" ? "aboveBar" : "belowBar",
+        color: isWin ? "#10b981" : "#ef4444",
+        shape: isWin ? "circle" : "square",
+        text: `CIERRE #${data.trade_id}: ${data.reason} (${pnlSign}$${data.net_pnl.toFixed(2)} USD)`,
+    });
     fetchTrades();
     fetchPositions();
     fetchMetrics();
@@ -933,5 +1040,17 @@ function handlePositionClosedEvent(data) {
 
 function handlePositionModifiedEvent(data) {
     showToast(`🛡️ Protección Dinámica: Posición #${data.position_id} [${data.modification_type}] | Nuevo SL: $${data.new_sl.toFixed(2)}`);
+    if (activePositionChartLines[data.position_id] && data.new_sl) {
+        const lines = activePositionChartLines[data.position_id];
+        if (lines.slLine) candleSeries.removePriceLine(lines.slLine);
+        lines.slLine = candleSeries.createPriceLine({
+            price: data.new_sl,
+            color: "#f59e0b",
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: `🔒 BE SL @ $${data.new_sl.toFixed(2)}`,
+        });
+    }
     fetchPositions();
 }
