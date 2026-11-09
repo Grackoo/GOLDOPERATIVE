@@ -23,15 +23,15 @@ class TradingStateMachine:
 
     # Allowed state transitions
     TRANSITIONS: Dict[SystemState, Set[SystemState]] = {
-        SystemState.INIT: {SystemState.IDLE, SystemState.LONDON_ACCUMULATION, SystemState.NY_SCANNING_SWEEP, SystemState.CIRCUIT_BREAKER},
-        SystemState.IDLE: {SystemState.LONDON_ACCUMULATION, SystemState.NY_SCANNING_SWEEP, SystemState.CIRCUIT_BREAKER},
-        SystemState.LONDON_ACCUMULATION: {SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
-        SystemState.NY_SCANNING_SWEEP: {SystemState.NY_SCANNING_DISPLACEMENT, SystemState.IDLE, SystemState.CIRCUIT_BREAKER, SystemState.COOLDOWN},
-        SystemState.NY_SCANNING_DISPLACEMENT: {SystemState.NY_SCANNING_FVG, SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
-        SystemState.NY_SCANNING_FVG: {SystemState.PENDING_ORDER, SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
+        SystemState.INIT: {SystemState.IDLE, SystemState.LONDON_ACCUMULATION, SystemState.NY_SCANNING_SWEEP, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
+        SystemState.IDLE: {SystemState.LONDON_ACCUMULATION, SystemState.NY_SCANNING_SWEEP, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
+        SystemState.LONDON_ACCUMULATION: {SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
+        SystemState.NY_SCANNING_SWEEP: {SystemState.NY_SCANNING_DISPLACEMENT, SystemState.IDLE, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER, SystemState.COOLDOWN},
+        SystemState.NY_SCANNING_DISPLACEMENT: {SystemState.NY_SCANNING_FVG, SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
+        SystemState.NY_SCANNING_FVG: {SystemState.PENDING_ORDER, SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
         SystemState.PENDING_ORDER: {SystemState.IN_POSITION, SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
         SystemState.IN_POSITION: {SystemState.COOLDOWN, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
-        SystemState.COOLDOWN: {SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.CIRCUIT_BREAKER},
+        SystemState.COOLDOWN: {SystemState.NY_SCANNING_SWEEP, SystemState.IDLE, SystemState.IN_POSITION, SystemState.CIRCUIT_BREAKER},
         SystemState.CIRCUIT_BREAKER: {SystemState.IDLE}  # Can only be manually reset or at session start next day
     }
 

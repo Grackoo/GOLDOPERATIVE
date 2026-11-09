@@ -7,13 +7,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from core.models import SystemState, OrderSide
+from core.models import SystemState, OrderSide, Order, OrderType, OrderStatus
 from core.events import (
     TickEvent, BarClosedEvent, BarUpdateEvent, LondonRangeCalculatedEvent,
     LiquiditySweepEvent, DisplacementEvent, FVGDetectedEvent,
@@ -23,6 +24,7 @@ from core.events import (
 from core.event_bus import event_bus
 from core.state_machine import state_machine
 from core.time_manager import time_manager
+from storage.db import db_manager
 from storage.repository import repository
 from storage.metrics_calc import compute_metrics
 from strategy.daily_decision_engine import daily_decision_engine
@@ -192,6 +194,49 @@ async def _ws_on_state_change(event: SystemStateChangedEvent) -> None:
         }
     })
 
+async def _ws_on_order_filled(event: OrderFilledEvent) -> None:
+    await ws_manager.broadcast({
+        "type": "ORDER_FILLED",
+        "data": {
+            "ticket": event.position.ticket,
+            "position_id": event.position.position_id,
+            "side": event.position.side.value if hasattr(event.position.side, "value") else str(event.position.side),
+            "volume": event.position.volume,
+            "entry_price": event.position.entry_price,
+            "stop_loss": event.position.stop_loss,
+            "take_profit": event.position.take_profit,
+            "time": event.position.opened_at.isoformat()
+        }
+    })
+
+async def _ws_on_position_closed(event: PositionClosedEvent) -> None:
+    await ws_manager.broadcast({
+        "type": "POSITION_CLOSED",
+        "data": {
+            "trade_id": event.trade_record.trade_id,
+            "position_id": event.trade_record.position_id,
+            "side": event.trade_record.side.value if hasattr(event.trade_record.side, "value") else str(event.trade_record.side),
+            "volume": event.trade_record.volume,
+            "entry_price": event.trade_record.entry_price,
+            "exit_price": event.trade_record.exit_price,
+            "net_pnl": event.trade_record.net_pnl,
+            "r_multiple": event.trade_record.r_multiple_realized,
+            "reason": event.trade_record.close_reason,
+            "time": event.trade_record.close_time.isoformat()
+        }
+    })
+
+async def _ws_on_position_modified(event: PositionModifiedEvent) -> None:
+    await ws_manager.broadcast({
+        "type": "POSITION_MODIFIED",
+        "data": {
+            "position_id": event.position.position_id,
+            "modification_type": event.modification_type,
+            "new_sl": event.new_sl,
+            "new_tp": event.new_tp
+        }
+    })
+
 # Register internal WebSocket subscriptions
 event_bus.subscribe(TickEvent, _ws_on_tick)
 event_bus.subscribe(BarUpdateEvent, _ws_on_bar_update)
@@ -202,6 +247,9 @@ event_bus.subscribe(DisplacementEvent, _ws_on_displacement)
 event_bus.subscribe(FVGDetectedEvent, _ws_on_fvg)
 event_bus.subscribe(SignalGeneratedEvent, _ws_on_signal)
 event_bus.subscribe(SystemStateChangedEvent, _ws_on_state_change)
+event_bus.subscribe(OrderFilledEvent, _ws_on_order_filled)
+event_bus.subscribe(PositionClosedEvent, _ws_on_position_closed)
+event_bus.subscribe(PositionModifiedEvent, _ws_on_position_modified)
 
 
 # --- REST API Endpoints ---
@@ -264,8 +312,11 @@ async def get_trades_history(limit: int = Query(default=100, le=500)):
 
 @app.get("/api/positions")
 async def get_active_positions():
-    """Returns live open positions."""
-    positions = await repository.rehydrate_positions()
+    """Returns live open positions with real-time mark-to-market prices and floating PnL."""
+    if hasattr(app.state, "broker") and app.state.broker:
+        positions = await app.state.broker.get_open_positions()
+    else:
+        positions = await repository.rehydrate_positions()
     return [
         {
             "position_id": p.position_id,
@@ -284,6 +335,117 @@ async def get_active_positions():
         }
         for p in positions
     ]
+
+
+@app.post("/api/orders")
+async def place_order_endpoint(request: Request):
+    """
+    Direct institutional order entry from dashboard.
+    Executes real orders into the trading engine with live matching and SL/TP sentinel.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return {"success": False, "error": "Invalid JSON payload"}
+
+    side_str = data.get("side", "BUY").upper()
+    volume = float(data.get("volume", 0.10))
+    order_type_str = data.get("order_type", "MARKET").upper()
+    entry_price = float(data.get("entry_price", 0.0)) if data.get("entry_price") else None
+    stop_loss = float(data.get("stop_loss", 0.0)) if data.get("stop_loss") else None
+    take_profit = float(data.get("take_profit", 0.0)) if data.get("take_profit") else None
+    comment = str(data.get("comment", "Manual Order"))
+
+    if volume <= 0:
+        return {"success": False, "error": "El volumen debe ser mayor a 0"}
+
+    side = OrderSide.BUY if side_str == "BUY" else OrderSide.SELL
+    order_type = OrderType.MARKET if order_type_str == "MARKET" else OrderType.LIMIT
+
+    # Obtain current real-time prices
+    current_bid = 4055.20
+    current_ask = 4055.21
+    if hasattr(app.state, "feed_manager") and app.state.feed_manager and app.state.feed_manager.latest_tick:
+        current_bid = app.state.feed_manager.latest_tick.bid
+        current_ask = app.state.feed_manager.latest_tick.ask
+
+    base_price = current_ask if side == OrderSide.BUY else current_bid
+    if entry_price and order_type == OrderType.LIMIT:
+        base_price = entry_price
+
+    # Auto SL/TP if omitted (Default 1:3 RRR)
+    if stop_loss is None or stop_loss <= 0:
+        risk_dist = 14.0
+        stop_loss = round(base_price - risk_dist if side == OrderSide.BUY else base_price + risk_dist, 2)
+
+    if take_profit is None or take_profit <= 0:
+        risk_dist = abs(base_price - stop_loss)
+        take_profit = round(base_price + (risk_dist * 3.0) if side == OrderSide.BUY else base_price - (risk_dist * 3.0), 2)
+
+    order = Order(
+        order_id=f"ORD_{int(datetime.now(timezone.utc).timestamp())}_{uuid.uuid4().hex[:4]}",
+        client_order_id=f"GUI_{uuid.uuid4().hex[:6]}",
+        symbol=settings.SYMBOL,
+        side=side,
+        order_type=order_type,
+        volume=volume,
+        entry_price=base_price,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        status=OrderStatus.PENDING,
+        created_at=datetime.now(timezone.utc),
+        comment=comment
+    )
+
+    if not hasattr(app.state, "broker") or not app.state.broker:
+        return {"success": False, "error": "El motor de ejecución no está conectado."}
+
+    filled_order = await app.state.broker.place_order(order)
+    return {
+        "success": filled_order.status in [OrderStatus.FILLED, OrderStatus.PENDING],
+        "order_id": filled_order.order_id,
+        "status": filled_order.status.value,
+        "entry_price": filled_order.filled_price or filled_order.entry_price,
+        "volume": filled_order.volume,
+        "stop_loss": filled_order.stop_loss,
+        "take_profit": filled_order.take_profit,
+        "side": filled_order.side.value
+    }
+
+
+@app.post("/api/positions/{position_id}/close")
+async def close_position_endpoint(position_id: str):
+    """Liquidates an open market position immediately at market price."""
+    if not hasattr(app.state, "broker") or not app.state.broker:
+        return {"success": False, "error": "Broker no disponible"}
+
+    trade = await app.state.broker.close_position(position_id, reason="MANUAL_CLOSE")
+    if trade:
+        return {
+            "success": True,
+            "trade_id": trade.trade_id,
+            "net_pnl": trade.net_pnl,
+            "exit_price": trade.exit_price,
+            "close_reason": trade.close_reason
+        }
+    return {"success": False, "error": "Posición no encontrada o ya liquidada"}
+
+
+@app.post("/api/trades/reset")
+async def reset_trades_endpoint():
+    """Resets audit trail database and starts clean audit session."""
+    async with db_manager.get_connection() as conn:
+        await conn.execute("DELETE FROM trades")
+        await conn.execute("DELETE FROM active_positions")
+        await conn.commit()
+
+    if hasattr(app.state, "broker") and hasattr(app.state.broker, "trade_history"):
+        app.state.broker.trade_history.clear()
+        app.state.broker.positions.clear()
+        app.state.broker.balance = settings.INITIAL_BALANCE
+
+    logger.info("Trade Audit Trail reset cleanly to 0.")
+    return {"success": True, "message": "Auditoría reiniciada con éxito a 0 operaciones."}
 
 
 @app.get("/api/bars")

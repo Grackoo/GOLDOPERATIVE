@@ -53,6 +53,7 @@ class PaperBrokerClient(BaseBrokerClient):
         self.trade_history: List[TradeRecord] = []
         self.latest_tick: Optional[Tick] = None
         self._ticket_counter: int = 100_000
+        self.order_manager: Optional[Any] = None
 
         # Subscribe to incoming ticks for position evaluation
         event_bus.subscribe(TickEvent, self.on_tick)
@@ -298,7 +299,14 @@ class PaperBrokerClient(BaseBrokerClient):
                 pos.side, pos.entry_price, pos.current_price, pos.volume
             )
 
-            # Check SL Trigger
+            # 2a. Dynamic Risk Management (BE at 1:1.5 RRR, Partial 50% at 1:2.0 RRR)
+            if self.order_manager:
+                try:
+                    await self.order_manager.update_position_risk(pos, pos.current_price)
+                except Exception as ex:
+                    logger.warning(f"Error updating position dynamic risk: {ex}")
+
+            # 2b. Check SL Trigger
             if pos.side == OrderSide.BUY and tick.bid <= pos.stop_loss:
                 logger.info(f"STOP LOSS HIT for BUY {pos.position_id} at {tick.bid} (SL: {pos.stop_loss})")
                 await self.close_position(pos.position_id, reason="SL")

@@ -170,9 +170,14 @@ async def start_server_and_engine():
     trading_system = AureusTradingSystem()
     await trading_system.initialize()
 
-    # Share bar aggregator and feed manager reference with FastAPI
+    # Share references with FastAPI
+    app.state.broker = trading_system.broker
+    app.state.trading_system = trading_system
     app.state.bar_aggregator = trading_system.bar_aggregator
     app.state.feed_manager = trading_system.feed_manager
+    app.state.order_manager = trading_system.order_manager
+    if hasattr(trading_system.broker, "order_manager"):
+        trading_system.broker.order_manager = trading_system.order_manager
 
     feed_task = None
     real_stream = None

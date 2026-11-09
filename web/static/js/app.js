@@ -149,6 +149,15 @@ function handleIncomingMessage(msg) {
         case "STATE_CHANGE":
             updateStateUI(msg.data.current);
             break;
+        case "ORDER_FILLED":
+            handleOrderFilledEvent(msg.data);
+            break;
+        case "POSITION_CLOSED":
+            handlePositionClosedEvent(msg.data);
+            break;
+        case "POSITION_MODIFIED":
+            handlePositionModifiedEvent(msg.data);
+            break;
         default:
             break;
     }
@@ -331,21 +340,22 @@ async function fetchPositions() {
         const tbody = document.getElementById("positions-tbody");
         tbody.innerHTML = "";
         if (posList.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#64748b;">No active market positions</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:#64748b;">No active market positions</td></tr>';
             return;
         }
         posList.forEach((p) => {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td>#${p.ticket}</td>
-                <td><strong>${p.side}</strong></td>
+                <td><strong style="color:${p.side === 'BUY' ? 'var(--bullish-green)' : 'var(--bearish-red)'};">${p.side}</strong></td>
                 <td>${p.volume.toFixed(2)}</td>
                 <td>$${p.entry_price.toFixed(2)}</td>
                 <td>$${p.current_price.toFixed(2)}</td>
-                <td>$${p.stop_loss.toFixed(2)}</td>
-                <td>$${p.take_profit.toFixed(2)}</td>
-                <td class="${p.unrealized_pnl >= 0 ? 'positive' : 'negative'}">$${p.unrealized_pnl.toFixed(2)}</td>
-                <td>${p.break_even ? 'YES (BE locked)' : 'NO'}</td>
+                <td style="color:var(--bearish-red);">$${p.stop_loss.toFixed(2)}</td>
+                <td style="color:var(--bullish-green);">$${p.take_profit.toFixed(2)}</td>
+                <td class="${p.unrealized_pnl >= 0 ? 'positive' : 'negative'}"><strong>$${p.unrealized_pnl.toFixed(2)}</strong></td>
+                <td>${p.break_even ? '<span style="color:var(--amber-accent);">🔒 BE</span>' : 'NO'}</td>
+                <td><button type="button" class="btn-close-pos" onclick="closePosition('${p.position_id}')">Cerrar</button></td>
             `;
             tbody.appendChild(tr);
         });
@@ -779,4 +789,149 @@ function formatMarkdownToHTML(md) {
     html = html.replace(/\n/g, "<br>");
 
     return html;
+}
+
+// 7. Interactive Trade Execution & Audit Actions
+function setExecLots(val) {
+    const input = document.getElementById("exec-lots");
+    if (input) input.value = val.toFixed(2);
+}
+
+async function executeManualTrade(side) {
+    const volume = parseFloat(document.getElementById("exec-lots").value) || 0.10;
+    const orderType = document.getElementById("exec-type").value;
+    const sl = parseFloat(document.getElementById("exec-sl").value) || null;
+    const tp = parseFloat(document.getElementById("exec-tp").value) || null;
+
+    const payload = {
+        side: side,
+        volume: volume,
+        order_type: orderType,
+        stop_loss: sl,
+        take_profit: tp,
+        comment: `Manual ${side} GUI`
+    };
+
+    try {
+        const res = await fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`🚀 ¡Orden ${side} enviada con éxito! ${volume} Lotes @ $${data.entry_price.toFixed(2)} | SL: $${data.stop_loss} | TP: $${data.take_profit}`);
+            fetchPositions();
+            fetchMetrics();
+        } else {
+            showToast(`❌ Error al ejecutar orden: ${data.error || "Desconocido"}`);
+        }
+    } catch (e) {
+        console.error("Order error:", e);
+        showToast("❌ Error de red al enviar la orden");
+    }
+}
+
+async function executeSetupTrade(setupType) {
+    if (!currentBriefing) {
+        await fetchDailyBriefing();
+    }
+    if (!currentBriefing) {
+        showToast("❌ No hay datos de setup calculados todavía.");
+        return;
+    }
+
+    const volume = parseFloat(document.getElementById("exec-lots").value) || 0.50;
+    let setup = setupType === "CALL" ? currentBriefing.call_setup : currentBriefing.put_setup;
+    if (!setup) {
+        showToast(`❌ Setup ${setupType} no disponible.`);
+        return;
+    }
+
+    const side = setupType === "CALL" ? "BUY" : "SELL";
+    const payload = {
+        side: side,
+        volume: volume,
+        order_type: "MARKET",
+        entry_price: setup.entry_price,
+        stop_loss: setup.stop_loss,
+        take_profit: setup.take_profit,
+        comment: `Setup ${setupType} 1:3`
+    };
+
+    try {
+        const res = await fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`⚡ ¡SETUP ${setupType} EJECUTADO (1:3 Exacto)! ${volume} Lotes | Entrada: $${data.entry_price.toFixed(2)} | SL: $${data.stop_loss.toFixed(2)} | TP: $${data.take_profit.toFixed(2)}`);
+            fetchPositions();
+            fetchMetrics();
+        } else {
+            showToast(`❌ Error: ${data.error || "Fallo en ejecución"}`);
+        }
+    } catch (e) {
+        console.error("Setup trade error:", e);
+        showToast("❌ Error de conexión al ejecutar el setup");
+    }
+}
+
+async function closePosition(positionId) {
+    try {
+        const res = await fetch(`/api/positions/${positionId}/close`, { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+            const pnlStr = data.net_pnl >= 0 ? `+$${data.net_pnl.toFixed(2)}` : `-$${Math.abs(data.net_pnl).toFixed(2)}`;
+            showToast(`🔔 Posición cerrada exitosamente | PnL Realizado: ${pnlStr} USD`);
+            fetchPositions();
+            fetchTrades();
+            fetchMetrics();
+        } else {
+            showToast(`❌ No se pudo cerrar: ${data.error || "Desconocido"}`);
+        }
+    } catch (e) {
+        console.error("Close position error:", e);
+    }
+}
+
+async function resetAuditTrail() {
+    if (!confirm("¿Deseas reiniciar la base de datos de auditoría a 0 operaciones para empezar una sesión de trading 100% limpia y real?")) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/trades/reset", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+            showToast("🗑️ ¡Auditoría reiniciada! 0 operaciones cerradas. Cuenta limpia.");
+            fetchTrades();
+            fetchPositions();
+            fetchMetrics();
+        }
+    } catch (e) {
+        console.error("Reset error:", e);
+    }
+}
+
+function handleOrderFilledEvent(data) {
+    showToast(`⚡ Orden Ejecutada en Mercado: #${data.ticket} ${data.side} ${data.volume}L @ $${data.entry_price.toFixed(2)}`);
+    fetchPositions();
+    fetchMetrics();
+}
+
+function handlePositionClosedEvent(data) {
+    const isWin = data.net_pnl >= 0;
+    const pnlSign = isWin ? "+" : "";
+    showToast(`🏁 Posición Cerrada: ${data.side} [${data.reason}] | PnL Neto: ${pnlSign}$${data.net_pnl.toFixed(2)} USD (${data.r_multiple >= 0 ? '+' : ''}${data.r_multiple.toFixed(1)}R)`);
+    fetchTrades();
+    fetchPositions();
+    fetchMetrics();
+}
+
+function handlePositionModifiedEvent(data) {
+    showToast(`🛡️ Protección Dinámica: Posición #${data.position_id} [${data.modification_type}] | Nuevo SL: $${data.new_sl.toFixed(2)}`);
+    fetchPositions();
 }
