@@ -1,25 +1,25 @@
 # 4. MÓDULO AVANZADO PARA CFDS DE ORO (XAU/USD)
-*Precios y niveles tomados estrictamente en la apertura de contado de EE. UU. y sesión matutina actual (08:58 AM CST).*
+*Precios y niveles tomados estrictamente en la apertura de contado de EE. UU. y sesión matutina actual (02:29:56 PM CST).*
 
 ---
 
 ## Parámetros Operativos de la Sesión
 
-- **Precio Spot a la Apertura de EE. UU. (08:30 CST):** $4,068.50 USD
-- **Precio Actual en Sesión (08:58 AM CST):** $4,055.20 USD (-0.33%)
-- **Rango de la Sesión:** Mínimo: $4,041.20 USD | Máximo: $4,098.50 USD
-- **Rango Recorrido:** $57.30 USD
-- **ATR Diario (14 periodos):** $55.20 USD
-- **Consumo de Rango Diario:** 103.8% del ATR consumido (Día de rango completo por volatilidad macro)
-- **VPOC de la Sesión:** $4,062.00 USD *(Zona de mayor acumulación institucional de volumen)*
+- **Precio Spot a la Apertura de EE. UU. (08:30 CST):** $4,104.31 USD
+- **Precio Actual en Sesión (02:29:56 PM CST):** $4,024.95 USD (-1.93%)
+- **Rango de la Sesión:** Mínimo: $4,008.59 USD | Máximo: $4,116.77 USD
+- **Rango Recorrido:** $108.18 USD
+- **ATR Diario (14 periodos):** $5.99 USD
+- **Consumo de Rango Diario:** 1806.0% del ATR consumido (Día de rango completo por volatilidad macro)
+- **VPOC de la Sesión:** $4,024.90 USD *(Zona de mayor acumulación institucional de volumen)*
 - **Niveles Pivote Diarios:**
-  - **Resistencia 3 (R3 Extendido):** $4,146.04 USD
-  - **Resistencia 2 (R2):** $4,122.27 USD
-  - **Resistencia 1 (R1):** $4,088.74 USD
-  - **Punto Pivote Central (PP):** $4,064.97 USD
-  - **Soporte 1 (S1):** $4,031.44 USD
-  - **Soporte 2 (S2):** $4,007.67 USD
-  - **Soporte 3 (S3 Extendido):** $3,974.14 USD
+  - **Resistencia 3 (R3 Extendido):** $4,199.79 USD
+  - **Resistencia 2 (R2):** $4,158.28 USD
+  - **Resistencia 1 (R1):** $4,091.61 USD
+  - **Punto Pivote Central (PP):** $4,050.10 USD
+  - **Soporte 1 (S1):** $3,983.43 USD
+  - **Soporte 2 (S2):** $3,941.92 USD
+  - **Soporte 3 (S3 Extendido):** $3,875.25 USD
 
 ---
 
@@ -36,20 +36,20 @@
 
 ### 1. Setup A: Rebote en Soporte Clave / Absorción Compradora (Long Mean-Reversion)
 - **Tipo de Orden:** 🟢 **CALL (LONG)**
-- **Zona Operativa:** $3974.14 - $4007.67 USD
-- **Condición de Activación:** Vela de 15 min con mecha de rechazo en la zona $4041.2 - $4007.67 USD y cierre de confirmación por encima de $4050.0 con volumen institucional.
-- **Precio de Entrada:** **$4,052.00 USD**
-- **Stop Loss (1R):** **$4,038.20 USD** (Riesgo = $13.80 USD)
-- **Take Profit (3R):** **$4,093.40 USD** (Objetivo = +$41.40 USD / Retesteo del Punto Pivote Central (PP) o S1 ($4031.44 - $4064.97))
+- **Zona Operativa:** $3875.25 - $3941.92 USD
+- **Condición de Activación:** Vela de 15 min con mecha de rechazo en la zona $4008.59 - $3941.92 USD y cierre de confirmación por encima de $4007.79 con volumen institucional.
+- **Precio de Entrada:** **$4,009.79 USD**
+- **Stop Loss (1R):** **$3,995.79 USD** (Riesgo = $14.00 USD)
+- **Take Profit (3R):** **$4,051.79 USD** (Objetivo = +$42.00 USD / Retesteo del Punto Pivote Central (PP) o S1 ($3983.43 - $4050.1))
 - **Ratio R:R:** **1:3 Exacto**
 
 ### 2. Setup B: Ruptura Bajista de Mínimos de Sesión (Short Breakdown)
 - **Tipo de Orden:** 🔴 **PUT (SHORT)**
-- **Zona Operativa:** $4040.2 - $4038.2 USD
-- **Condición de Activación:** Vela de 15 min quebrando con fuerza y cuerpo amplio (> 1.5x ATR) el mínimo de sesión de $4041.2 USD.
-- **Precio de Entrada:** **$4,040.00 USD**
-- **Stop Loss (1R):** **$4,049.94 USD** (Riesgo = $9.94 USD)
-- **Take Profit (3R):** **$4,010.18 USD** (Objetivo = -$29.82 USD / Proyección hacia soporte extendido S3 / nivel psicológico ($3974.14))
+- **Zona Operativa:** $4007.59 - $4005.59 USD
+- **Condición de Activación:** Vela de 15 min quebrando con fuerza y cuerpo amplio (> 1.5x ATR) el mínimo de sesión de $4008.59 USD.
+- **Precio de Entrada:** **$4,007.39 USD**
+- **Stop Loss (1R):** **$4,017.39 USD** (Riesgo = $10.00 USD)
+- **Take Profit (3R):** **$3,977.39 USD** (Objetivo = -$30.00 USD / Proyección hacia soporte extendido S3 / nivel psicológico ($3875.25))
 - **Ratio R:R:** **1:3 Exacto**
 
 ---
